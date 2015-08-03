@@ -13,7 +13,6 @@
 
 (bind-alias audiofile_t i8*)
 (bind-alias mutex_t i8*)
-;(bind-alias bool i1)
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ;; YbotAudioFileBuffer type ;;
@@ -32,9 +31,10 @@
 (bind-type YbotAudioFileBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,audiofile_t,i64,mutex_t*,bool>)
 (bind-alias YAFB YbotAudioFileBuffer)
 (bind-val YAFB_before i64 -1)
-(bind-val YAFB_well_inside i64 0)
-(bind-val YAFB_near_end i64 1)
-(bind-val YAFB_past i64 2)
+(bind-val YAFB_first_half i64 0)
+(bind-val YAFB_third_quarter i64 1)
+(bind-val YAFB_last_quarter i64 2)
+(bind-val YAFB_past i64 3)
 (bind-val YAFB_busy i64 -2)
 
 
@@ -107,15 +107,18 @@
              (frames (tref buffer 1))
              (channels (tref buffer 2))
              (start_frame (tref buffer 4))
+             (playhead (tref buffer 5))
              (desired_frame (- frame start_frame)))
           (if (and (<= 0 desired_frame) (< desired_frame frames))
               (begin
                 (pset! output 0 (pref data (+ channel (* desired_frame channels))))
+                (tset! buffer 5 desired_frame)
                 (pset! success 0 #t)
                 (YAFB_unlock buffer)
                 void)
               (begin
-                (pset! output 0 (convert 0.0))
+                (if (= channel 0) (tset! buffer 5 (modulo (+ (tref buffer 5) 1) frames)))
+                (pset! output 0 (pref data (+ channel (* (tref buffer 5) channels))))
                 (pset! success 0 #f)
                 (YAFB_unlock buffer)
                 void)))
@@ -126,7 +129,7 @@
 
 
 (bind-func YAFB_contains:[i64,YbotAudioFileBuffer*,i64]*
-  (lambda (buffer frame) ;; -1 = before buffer, 0 = well inside buffer, 1 = near end of buffer, 2 = past buffer
+  (lambda (buffer frame)
     (if (YAFB_trylock buffer)
         (let*
             ((start_frame (tref buffer 4))
@@ -135,8 +138,9 @@
              (output:i64 0))
          (cond
           ((< frame start_frame) (set! output YAFB_before))
-          ((and (>= frame start_frame) (< frame (+ start_frame (/ lngth 2)))) (set! output YAFB_well_inside))
-          ((< frame end_frame) (set! output YAFB_near_end))
+          ((< frame (+ start_frame (convert (/ lngth 2) i64))) (set! output YAFB_first_half))
+          ((< frame (+ start_frame (convert (/ (* lngth 3) 4) i64))) (set! output YAFB_third_quarter))
+          ((< frame end_frame) (set! output YAFB_last_quarter))
           (else (set! output YAFB_past)))
          (YAFB_unlock buffer)
          output)
@@ -188,20 +192,20 @@
                      (p (YAFB_contains playbuf f))
                      (success:bool* (salloc))
                      (value:SAMPLE* (salloc)))
+                  (if (and buffering (YAFB_ready idlebuf)) (set! buffering #f) #f)
                   (cond
-                   ((= p YAFB_near_end)
-                    (cond
-                     ((and (not buffering) (YAFB_ready playbuf) (YAFB_ready idlebuf)) ;; time to load some more data into the idle buffer
-                      (spawn (let ((new_start_frame (+ read_buffer_width (tref playbuf 1))))
+                   ((or (= p YAFB_third_quarter) (= p YAFB_past) (= p YAFB_before))
+                    (cond ;; time to load some more data into the idle buffer
+                     ((and (not buffering) (YAFB_ready playbuf) (YAFB_ready idlebuf)) ;; idlebuf is ready to load
+                      (spawn (let ((new_start_frame (+ (convert (/ (* read_buffer_width 3) 4) i64) (tref playbuf 1))))
                                (lambda () (YAFB_load_from_file_offset  idlebuf new_start_frame) void)))
                       (set! buffering #t)
                       void)
                      (else void)))
-                   ((or (= p YAFB_past) (= p YAFB_before))
-                    (if (YAFB_ready idlebuf) (set! buffering #f) #f)
-                    (let ((q (YAFB_contains idlebuf f)))
+                   ((= p YAFB_last_quarter)
+                     (let ((q (YAFB_contains idlebuf f)))
                       (cond
-                       ((= q 0)
+                       ((or (= q YAFB_first_half) (= q YAFB_third_quarter))
                         (if (= playing_buffer 1)
                             (begin
                               (set! playing_buffer 2)
@@ -213,9 +217,18 @@
                               (set! playbuf buffer1)
                               (set! idlebuf buffer2)
                               void)))
-                       (else void))))
-                   ((= p YAFB_well_inside) ;; All is well :)
-                    void) 
+                       ((or (= q YAFB_past) (= q YAFB_before))
+                        (cond ;; time to load some more data into the idle buffer
+                         ((and (not buffering) (YAFB_ready playbuf) (YAFB_ready idlebuf)) ;; idlebuf is ready for loading
+                          (spawn (let ((new_start_frame (+ (convert (/ (* read_buffer_width 3) 4) i64) (tref playbuf 1))))
+                                   (lambda () (YAFB_load_from_file_offset  idlebuf new_start_frame) void)))
+                          (set! buffering #t)
+                          void)
+                         (else void)))
+                       (else ;; q = YAFB_busy: idlebuf is still loading, so continue reading from playbuf.
+                        void))))
+                   ((= p YAFB_first_half) ;; All is well :)
+                    void)
                    (else ;; Something weird is happening - generate noise so we can notice it
                     (pset! value 0 (convert (* 0.1 (random))))
                     void
@@ -240,7 +253,8 @@
   (let* ((playhead:i64 0)
          (playing:i64 1)
          (gain:float 0.5)
-         (reader (YbotAudioFileReader_c "/path/to/my/audiofile.wav" (* SR 10)))
+         (reader (YbotAudioFileReader_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav" (* SR 10))) 
+                                        ;(reader (YbotAudioFileReader_c "/path/to/my/audiofile.wav" (* SR 10)))
          (val:float 0.0))
     (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
       (if (< 0 playing)
@@ -255,6 +269,6 @@
 
 
 (dsp:set! dsp)
-;(dsp.playhead (random 0 10000000))
+(dsp.playhead (random 0 10000000))
 
 (set! *xtmlib-ybot-audio-file-reader-loaded* #t)
