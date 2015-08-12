@@ -1,0 +1,95 @@
+(bind-func idle:[i64]*
+  (lambda ()
+    0))
+
+(bind-alias sender_type [double,double]*)
+(bind-alias listener_type [void,sender_type]*)
+(bind-alias metro_type [double,double]*)
+(bind-alias shaper_type [double,double]*)
+
+(bind-func duty:listener_type
+  (lambda (sender:sender_type)
+    (sender.ramp-time 0.0)
+    (sender 0.0)
+    (sender.ramp-time 44100.0)
+    (sender 1.0)
+    void))
+
+(bind-func test_listener:listener_type
+  (lambda (sender:sender_type)
+    (printf "Called test listener\n")
+    void))
+
+
+(bind-func lazy_listener:listener_type
+  (lambda (sender:sender_type)
+    void))
+
+(bind-func frac:[double,double]*
+	   (lambda (x:double)
+	     (- x (floor x))))
+
+
+(bind-func metro_make:[metro_type]*
+  (let* ((numerator:i64 4)
+	(denominator:i64 4)
+	(beat:double 0.0)
+	(bar:i64 0)
+	(beatclass:i64 0)
+	(sample-rate:double 44100.0)
+	(period:double 0.5)
+	(listener:listener_type lazy_listener)
+	(metronome:metro_type
+	 (lambda (time:double)
+	   (let ((delta:double (/ 1.0 (* period sample-rate))))
+	     (if (< (frac beat) delta)
+		 (begin (set! beatclass (+ beatclass 1))
+			(if (= beatclass numerator)
+			    (begin (set! bar (+ bar 1.0))
+				   (set! beatclass (modulo beatclass numerator))))
+			(printf "%d:%d\t%lf\n" bar beatclass beat)
+			(listener metronome)))
+	     (set! beat (+ beat delta))
+	     beat))))
+    (lambda ()
+      metronome)))
+
+(bind-func metro_get_tempo:[double,metro_type]*
+	   (lambda (metronome:metro_type)
+	     (/ 60.0 (metronome.period))))
+
+
+(bind-func metro_set_tempo:[void,metro_type,double]*
+  (lambda (metronome:metro_type new-tempo:double)
+    (let ((new-period (/ 60.0 new-tempo)))
+      (metronome.period new-period)
+      void)))
+
+(bind-func metro_get_listener:[listener_type,metro_type]*
+  (lambda (metronome:metro_type)
+    (metronome.listener)))
+
+
+(bind-func metro_set_listener:[void,metro_type,listener_type]*
+  (lambda (metronome listener)
+    (metronome.listener listener)
+    void))
+
+	     
+(bind-func metro_reset:[void,metro_type]*
+	   (lambda (metronome:metro_type)
+	     (metronome.beat 0.0)
+	     (metronome.bar 0)
+	     (metronome.beatclass 0)
+	     void))
+
+
+;(bind-func beatclass_listener_make:[listener_type,i64]*
+;  (lambda (bc:i64)
+;    (let ((response 
+;    (lambda (sender:sender_type)
+;      (let ((mbc (sender.beatclass)))
+;	(if (= bc mbc))
+	
+
+	     

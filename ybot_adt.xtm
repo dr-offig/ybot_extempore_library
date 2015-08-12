@@ -1,0 +1,121 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-adt-loaded*) *xtmlib-ybot-adt-loaded*)
+    (sys:load-escape "ybot_adt library already loaded"))
+(define *xtmlib-ybot-adt-loaded* #f)
+
+;; Dependencies
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_maths.xtm"))         
+(sys:load "libs/std.xtm")
+
+
+
+;;;;;;;;;;;;;;; Modulo Arithmetic ;;;;;;;;;;;;
+(bind-type Zp <i64,i64>)
+
+(bind-func Zp_val:[i64,Zp*]*
+  (lambda (this:Zp*)
+    (tref this 0)))
+
+(bind-func Zp_base:[i64,Zp*]*
+  (lambda (this:Zp*)
+    (tref this 1)))
+
+(bind-func Zp_setVal:[i64,Zp*,i64]*
+  (lambda (this:Zp* val:i64)
+    (tset! this 0 (imod val (Zp_base this)))
+    (Zp_val this)))
+
+(bind-func Zp_setBase:[i64,Zp*,i64]*
+  (lambda (this:Zp* base:i64)
+    (tset! this 1 base)
+    base))
+
+(bind-func Zp_inc:[i64,Zp*]*
+  (lambda (this:Zp*)
+    (Zp_setVal this (+ (Zp_val this) 1))
+    (Zp_val this)))
+
+(bind-func Zp_add_Zp:[Zp*,Zp*,Zp*]*
+  (lambda (a:Zp* b:Zp*)
+    (Zp
+     (imod
+      (+ (Zp_val a) (Zp_val b))
+      (Zp_base a))
+     (Zp_base a))))
+
+(bind-func Zp_add_i64:[Zp*,Zp*,i64]*
+  (lambda (a:Zp* b:i64)
+    (Zp
+     (imod
+      (+ (Zp_val a) b)
+      (Zp_base a))
+     (Zp_base a))))
+
+(bind-poly Zp_add Zp_add_Zp)
+(bind-poly Zp_add Zp_add_i64)
+
+
+;;;;;;;;;;;;;;;; Loop Array ;;;;;;;;;;;;;
+(bind-type LoopArray <!a*,i64>) 
+
+(bind-func lref:[!a,LoopArray:<!a*,i64>*,i64]*
+  (lambda (myArray index)
+    (pref (tref myArray 0) (imod index (tref myArray 1)))))
+
+(bind-func lset:[void,LoopArray*,i64,!a]*
+  (lambda (myArray index value)
+    (pset! (tref myArray 0) (imod index (tref myArray 1)) value)
+    void))
+
+;(bind-func loop_array_test:[void]*
+;  (lambda ()
+;    (let* ((data:float* (zalloc 8))
+;           (anArray (LoopArray data 8))
+;           (i:i64 0))
+;      (pfill! data (dtof 0.0) (dtof 1.1) (dtof 2.2) (dtof 3.3) (dtof 4.4) (dtof 5.5) (dtof 6.6) (dtof 7.7))
+;      (lset anArray 3 (dtof 3.9))
+;      (dotimes (i 20)
+;        (println (lref anArray i)))
+;      void)))
+    
+;;;;;;;;;;;;;;;; Shift Array ;;;;;;;;;;;
+(bind-type ShiftArray <LoopArray:<!a,i64>*,i64>)
+
+(bind-func DelayLine:[ShiftArray:<LoopArray*,i64>*,i64]*
+  (lambda (lngth:i64)
+    (let* ((data:float* (zalloc lngth))
+           (loopArray (LoopArray data lngth))
+           (shiftArray (ShiftArray loopArray 0)))
+      shiftArray)))
+
+(bind-func sa_shift:[!a,ShiftArray*,!a]
+  (lambda (shiftArray value)
+    (let* ((loopArray (tref shiftArray 0))
+           (lngth (tref loopArray 1))
+           (offset (tref shiftArray 1))
+           (output (lref loopArray offset)))
+      (lset loopArray (- offset 1) value)
+      (tset! shiftArray 1 (imod (+ offset 1) lngth))
+      output)))
+
+(bind-func sa_peek:[!a,ShiftArray*,i64]
+  (lambda (shiftArray index)
+      (let* ((loopArray (tref shiftArray 0))
+           (lngth (tref loopArray 1))
+           (offset (tref shiftArray 1)))
+        (lref loopArray (+ offset index)))))
+ 
+;(bind-func test_shift_array:[ShiftArray:<LoopArray*,i64>*,i64]*
+;  (lambda (lngth:i64)
+;    (let* ((data:float* (zalloc lngth))
+;           (loopArray (LoopArray data lngth))
+;           (shiftArray (ShiftArray loopArray 0))
+;           (i:i64 0))
+;      (dotimes (i 20)
+;        (println (sa_shift shiftArray (i64tof i))))
+;      shiftArray)))
+
+
+(set! *xtmlib-ybot-adt-loaded* #t)

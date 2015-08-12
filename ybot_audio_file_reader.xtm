@@ -13,7 +13,6 @@
 
 (bind-alias audiofile_t i8*)
 (bind-alias mutex_t i8*)
-;(bind-alias bool i1)
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ;; YbotAudioFileBuffer type ;;
@@ -236,25 +235,25 @@
 
 
 ;;;;; Example usage ;;;;;;
-(bind-func dsp:DSP
-  (let* ((playhead:i64 0)
-         (playing:i64 1)
-         (gain:float 0.5)
-         (reader (YbotAudioFileReader_c "/path/to/my/audiofile.wav" (* SR 10)))
-         (val:float 0.0))
-    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
-      (if (< 0 playing)
-          (set! val (reader playhead channel))
-          (set! val (dtof 0.0)))
-      (cond ((= channel 0)
-             (set! playhead (+ playhead 1))
-             (cond ((> playhead (reader.frames))
-                    (println "Looping")
-                    (set! playhead 0)))))
-      (* gain val))))
+;(bind-func dsp:DSP
+;  (let* ((playhead:i64 0)
+;         (playing:i64 1)
+;         (gain:float 0.5)
+;         (reader (YbotAudioFileReader_c "/path/to/audiofile.wav" (* SR 10)))
+;         (val:float 0.0))
+;    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+;      (if (< 0 playing)
+;          (set! val (reader playhead channel))
+;          (set! val (dtof 0.0)))
+;      (cond ((= channel 0)
+;             (set! playhead (+ playhead 1))
+;             (cond ((> playhead (reader.frames))
+;                    (println "Looping")
+;                    (set! playhead 0)))))
+;      (* gain val))))
 
 
-(dsp:set! dsp)
+;(dsp:set! dsp)
 ;(dsp.playhead (random 0 10000000))
 
 (set! *xtmlib-ybot-audio-file-reader-loaded* #t)
