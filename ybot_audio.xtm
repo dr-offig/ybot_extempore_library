@@ -1,0 +1,35 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-audio-loaded*) *xtmlib-ybot-audio-loaded*)
+    (sys:load-escape "ybot_audio library already loaded"))
+(define *xtmlib-ybot-audio-loaded* #f)
+
+;; Dependencies
+;; none at the moment
+
+;; (bind-val SPI SAMPLE 3.1415926535897932384626433832795028841971693993751058209749)
+;; (bind-val STWOPI SAMPLE 6.2831853071795864769252867665590057683943387987502116419498)
+;; (bind-val SE SAMPLE 2.7182818284590452353602874713526624977572470936999595749669)
+
+;; ;; bind some global audio values
+;; (if (not (llvm:get-globalvar "SAMPLERATE"))
+;;     (begin (bind-val SAMPLERATE SAMPLE (integer->real *au:samplerate*))
+;;            (bind-val SRs SAMPLE (integer->real *au:samplerate*))
+;;            (bind-val SRf float (integer->real *au:samplerate*))
+;;            (bind-val SRd double (integer->real *au:samplerate*))           
+;;            (bind-val SR i64 *au:samplerate*)))
+;; (if (not (llvm:get-globalvar "CHANNELS"))
+;;     (bind-val CHANNELS i64 *au:channels*))
+;; (if (not (llvm:get-globalvar "IN_CHANNELS"))
+;;     (bind-val IN_CHANNELS i64 *au:in-channels*))
+;; (if (not (llvm:get-globalvar "FRAMES"))
+;;     (bind-val FRAMES i64 *au:block-size*))
+
+;; (bind-func print_audio_state
+;;   (lambda ()
+;;     (printf "    FRAMES: %lld\n" FRAMES)
+;;     (printf " OUT CHANS: %lld\n" CHANNELS)
+;;     (printf "  IN CHANS: %lld\n" IN_CHANNELS)
+;;     (printf "SAMPLERATE: %f\n" (ftod (convert SAMPLERATE)))))
+
+;; ;(print_audio_state)
+(set! *xtmlib-ybot-audio-loaded* #t)

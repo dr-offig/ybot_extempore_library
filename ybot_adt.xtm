@@ -118,4 +118,191 @@
 ;      shiftArray)))
 
 
+;;;;;;;;;;;;;;;;;;;; Tree fun ;;;;;;;;;;;;;;;;;;;
+(bind-type BTree <!v,BTree*,BTree*>)
+(bind-func test_btree:[BTree:<i64,BTree*,BTree*>*,i64]*
+  (lambda (x)
+    (BTree_leaf x)))
+
+(bind-func BTree_leaf:[BTree:<!a,BTree*,BTree*>*,!a]*
+  (lambda (value)
+    (BTree value null null)))
+
+(sys:load "libs/core/adt.xtm")
+(bind-type Tree <!a,List:<Tree:<!a,List*>*,List*>*>)
+
+(bind-type Tree <!a,List:<Tree*,List*>*>)
+
+(t:List{i64})
+
+(bind-func xxx
+  (lambda ()
+    (list 1 2 3 4)))
+    
+
+(bind-type Tree <!a,Tree*>*)
+
+(bind-func kkk
+  (lambda ()
+    (println "HE")))
+
+(bind-func test
+  (lambda ()
+    (let ((t (Tree 6:i64 null)))
+      t)))
+
+    (let ((trees (list (Tree 6:i64 null) (Tree 7:i64 null))))
+      trees)))
+
+
+(bind-type Frog <!a,!b,Frog:<!a,Frog*>*,Frog:<!b,Frog*>*>)
+
+
+
+
+
+(bind-type generic_thing <!a,generic_thing*>)
+
+(bind-func make_generic_thing:[generic_thing:<!a,generic_thing*>*,!a]*
+  (lambda (x)
+    (generic_thing x null)))
+
+; :
+
+(bind-func test_specialised_thing:[generic_thing*,i8]*
+  (lambda (x)
+    (generic_thing x null)))
+
+
+
+
+
+
+
+
+
+
+(bind-type YTree <!a,YTree*,YTree*,i64>)
+
+(bind-func test_i64_ytree:[YTree:<i64,YTree*,YTree*,i64>*]*
+  (lambda ()
+    (let ((output (make_node 3)))
+      output)))
+
+(test_i64_ytree)
+
+(bind-func make_node:[YTree:<!a,YTree*,YTree*,i64>*,!a]*
+  (lambda (x:!a)
+    (let ((output (YTree x null null 0)))
+      (tset! output 1 output)
+      output)))
+
+(bind-func test_specialised_node:[YTree:<i64,YTree*,YTree*,i64>*,i64]*
+  (lambda (x:i64)
+    (make_node x)))
+
+
+(bind-func make_node:[YTree:<!a,YTree*,YTree*,i64>*,!a]*
+  (lambda (x:!a)
+    (let ((output:YTree:<!a,YTree*,YTree*,i64>* (zalloc)))
+      (tset! output 0 x)
+      (tset! output 1 output)
+      (tset! output 2 null)
+      (tset! output 3 0)
+      output)))
+
+(bind-func make_node_i64:[YTree:<i64,YTree*,YTree*,i64>*,i64]*
+  (lambda (x:i64)
+    (make_node x)))
+
+(bind-func make_node_i64:[YTree:<i64,YTree*,YTree*,i64>*,i64]*
+  (lambda (x:i64)
+    (let ((output:YTree:<i64,YTree*,YTree*,i64>* (zalloc)))
+      (tset! output 0 x)
+      (tset! output 1 output)
+      (tset! output 2 null)
+      (tset! output 3 0)
+      output)))
+
+(make_node_i64 4)
+
+(bind-func test2_i64_ytree:[YTree:<i64,YTree*,YTree*,i64>*]*
+  (lambda ()
+    (let ((output (make_node 3)))
+      output)))
+
+
+(bind-func make_node_i64:[Tree:<i64,Tree*,Tree*,i64>*,i64]*
+  (lambda (n:i64)
+    (let ((output:Tree:<i64,Tree*,Tree*,i64>* (zalloc)))
+      (tset! output 0 n)
+      (tset! output 1 output)
+      (tset! output 2 null)
+      (tset! output 3 0))
+    output))
+
+
+(bind-func make_node_int:[Tree:<i64,Tree*,Tree*,i64>*]*
+  (lambda ()
+    (make_node 3)))
+
+(bind-func test_o_rama:[Tree:<String*,Tree*,Tree*,i64>*,String*]*
+  (lambda (str:String*)
+    (make_node str)))
+
+(bind-func make_scrabble_tree:[Tree:<String*,Tree*,Tree*,i64>*,i64]*
+  (lambda (depth:i64)
+    (let* ((x:i8* (let ((_x:i8* (zalloc 1))) (pset! _x 0 'a') _x))
+           (root:String* (String 1 x))
+           (output (make_node x)))
+      output)))
+
+      
+      
+          
+
+        
+
+
+
+
+;; (bind-func Tree_walk_preorder:[void,Tree:<!nt,List:<Tree*,List*>*>,[void,!nt]*]
+;;    (lambda (tree fn)
+;;      (let ((to_visit (list)))
+;;        (while (not (or (null? to_visit)
+;;                        (null? tree)))
+;;          (if (not (null? tree))
+;;              (begin
+;;                ;; call the render callback
+;;                (fn (tref tree 0))
+;;                ;; set the other children to walk later
+;;                (if (not (null? (cdr (tref tree 5))))
+;;                    (set! to_visit
+;;                          (append (cdr (tref tree 5))
+;;                                  to_visit)))
+;;                ;; keep walking deeper
+;;                (set! tree (car (tref tree 5))))
+;;              (begin
+;;                ;; go back up and walk a different branch
+;;                (set! tree (car to_visit))
+;;                (set! to_visit (cdr to_visit))))))))
+
+
+
+
+
+;; (bind-func Tree_find:[]
+;;   (lambda (tree visit)
+;;     ))
+
+;; (bind-func Tree_map:[]
+;;   (lambda (tree visit)
+;;     ))
+
+;; (bind-func Tree_reduce:[]
+;;   (lambda (tree visit)
+;;     ))
+
+
+
 (set! *xtmlib-ybot-adt-loaded* #t)

@@ -1,0 +1,59 @@
+(bind-func make_global_double:[double*]*
+  (lambda ()
+    (let (($p:double* (halloc)))
+      $p)))
+
+(bind-func get_global_double:[double,double*]*
+  (lambda ($x:double*)
+    (pref $x 0)))
+
+
+(bind-func make_global_float:[float*]*
+  (lambda ()
+    (let (($p:double* (halloc)))
+      $p)))
+
+(bind-func set_global_double:[void,double*,double]*
+  (lambda ($p:double* val:double)
+    (pset! $p 0 val)
+    void))
+
+(bind-func get_global_float:[float,float*]*
+  (lambda ($x:float*)
+    (pref $x 0)))
+
+
+(bind-func set_global_float:[void,float*,float]*
+  (lambda ($p:float* val:float)
+    (pset! $p 0 val)
+    void))
+
+(bind-func make_global_i64:[i64*]*
+  (lambda ()
+    (let (($p:i64* (halloc)))
+      $p)))
+
+(bind-func get_global_i64:[i64,i64*]*
+  (lambda ($x:i64*)
+    (pref $x 0)))
+
+(bind-func set_global_i64:[void,i64*,i64]*
+  (lambda ($p:i64* val:i64)
+    (pset! $p 0 val)
+    void))
+
+
+(bind-func make_global_data:[i64*,i64]*
+  (lambda (size_in_bytes:i64)
+    (let (($data:i64* (halloc size_in_bytes)))
+      $data)))
+
+(bind-func destroy_global_data:[void,i64*]*
+  (lambda ($data:i64*)
+    (free $data)
+    void))
+
+;(bind-func value:[!a,!a*]*
+;  (lambda (x:!a*)
+;    (bitcast (pref x 0) !a*)))
+

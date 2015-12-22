@@ -1,0 +1,199 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-filesystem-loaded*) *xtmlib-ybot-filesystem-loaded*)
+    (sys:load-escape "ybot_filesystem library already loaded"))
+(define *xtmlib-ybot-filesystem-loaded* #f)
+
+;(if (not (defined? '*ybot-lib-dir*))
+;    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;(sys:load (string-append *ybot-lib-dir* "/ybot_????.xtm"))
+
+
+(bind-val EOF i64 -1)
+
+
+(bind-func schmick:[void,i8*]*
+  (lambda (filepath:i8*)
+    (let*
+        ((sz:i64 (* 80 4 200))
+         (cmd:i8*
+          (let ((tmp:i8* (zalloc (+ (strlen filepath) 7))))
+            (strcpy tmp "ls -al ")))
+         (f (popen (strcat cmd filepath) "r"))
+         (buf:i8* (salloc sz))
+         (reader:[void]*
+          (lambda ()
+            (let ((c:i64 (i32toi64 (fgetc f))))
+              (if (<> c EOF)
+                  (begin
+                    (printf "%c" (i64toi8 c))
+                    (reader))
+                  (begin 
+                    (printf "\n--------------------------------------------------------\n")
+                    void))))))
+      (reader))))
+                  
+
+(schmick ".")
+
+
+(bind-func is_directory:[bool,i8*]*
+  (lambda (filepath:i8*)
+    (let*
+        ((cmd:i8*
+          (let ((tmp:i8* (zalloc (+ (strlen filepath) 256))))
+            (strcpy tmp "stat -f %T " )))
+         (f (popen (strcat cmd filepath) "r")))
+      (let ((c:i32 (fgetc f)))
+        (pclose f)
+        (= c (i64toi32 47))))))
+    
+
+(is_directory "Wormhole")
+
+
+(bind-func sys_query:[i8*,i8*,i8*]
+  (lambda (cmd:i8* arg:i8*)
+    (let* ((block_size:i64 1014)
+           (output:i8* (zalloc block_size))
+           (tmp:i8* (salloc (+ (strlen cmd) (strlen arg)))))
+      (strcpy tmp cmd) (strcat tmp arg)
+      (let* ((f (popen tmp "r"))
+             (reader:[void,i8*i64]*
+              (lambda (buf sz)
+                (let ((n (fread buf 1 sz)))
+                  (if (< n sz)
+                      output
+                      (let* ((sz2 (* sz 2))
+                             (buf2:i8* (zalloc sz2)))
+                        (memcpy buf2 buf sz)
+                        (set! output buf2)
+
+                        (reader mm)
+                            
+                    
+             
+    
+
+
+  
+
+
+(bind-func descend_into_dir:[bool,i8*]*
+  (lambda (filepath)
+    (if (is_directory filepath)
+        (let (((cmd:i8*
+          (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
+            (strcpy tmp "file ")))
+               (f (popen (strcat cmd dirpath) "r"))))))))
+
+
+
+(bind-func descend_into_dir:[void,i8*]*
+  (lambda (dirpath:i8*)
+    (let*
+        ((sz:i64 (* 80 4 200))
+         (cmd:i8*
+          (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
+            (strcpy tmp "file ")))
+         (f (popen (strcat cmd dirpath) "r"))
+         (buf:i8* (salloc sz))
+         (reader:[void]*
+          (lambda ()
+            (let ((c:i64 (i32toi64 (fgetc f))))
+              (if (<> c EOF)
+                  (begin
+                    (printf "%c" (i64toi8 c))
+                    (reader))
+                  (begin 
+                    (printf "\n--------------------------------------------------------\n")
+                    void))))))
+      (reader))))
+
+(descend_into_dir ".")
+
+(bind-func walk-dir:[void,i8*]*
+  (lambda (dir)
+    (file dir)))
+
+
+
+
+
+
+
+
+
+
+
+;;;;;;;;;; Bollocks below ;;;;;;;;
+
+;; load the libsndfile dynamic library
+;(bind-dylib libsndfile
+;  (cond ((string=? (sys:platform) "OSX")
+;         "libsndfile.dylib")
+;        ((string=? (sys:platform) "Linux")
+;         "libsndfile.so")
+;        ((string=? (sys:platform) "Windows")
+;         "libsndfile-1.dll")
+;        (else
+;         (begin (print-with-colors 'red 'default #f (print "Error"))
+;                (print ": unsupported platform ")
+;                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))
+
+
+;(define-macro (os-specific f_osx f_lnx f_win)
+;  `(cond ((string=? (sys:platform) "OSX")
+;         f_osx)
+;        ((string=? (sys:platform) "Linux")
+;         f_lnx)
+;        ((string=? (sys:platform) "Windows")
+;         f_win)
+;        (else
+;         (begin (print-with-colors 'red 'default #f (print "Error"))
+;                (print ": unsupported platform ")
+;                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))
+
+
+;; Already defined in scheme.xtm
+;(define sys:file-path-components
+;  (lambda (file-path)
+;    (let ((base (regex:matched file-path "(.*)[/\\\\](.*)\\.(.*)")))
+;      (and (not (null? base))
+;           (cdr base)))))
+
+;(define sys:file-path-components-nix
+;  (lambda (file-path)
+;    (let ((base (regex:matched file-path "(.*)/(.*)\\.(.*)")))
+;      (and (not (null? base))
+;           (cdr base)))))
+
+;(define sys:file-path-windosify
+;  (lambda (file-path)
+;    (let ((bits (regex:split file-path "/")))
+;      (string-join bits (make-string 1 (integer->char 92))))))
+
+      
+;(sys:file-path-components (string-join (list "Users" "s2805534" "Documents" "splergh.xtm")  (make-string 1 (integer->char 92))))
+
+;(sys:file-path-windosify "C:\\My Documents\\blergh")
+
+;(define sys:file-path-components-nix
+;  (lambda (file-path)
+;    (let ((base (regex:matched file-path "(.*)/(.*)\\.(.*)")))
+;      (and (not (null? base))
+;           (cdr base)))))
+
+;(regex:matched
+; "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/snd\\ file.xtm"
+; "(.*)[/\\\\](.*)\\.(.*)")
+
+;(regex:matched
+; "\\Users\\s2805534\\Documents\\code\\extempore\\extempore-dev\\extempore\\libs\\external\\sndfile.xtm"
+; "(.*)[/\\\\](.*)\\.(.*)")
+
+;(sys:file-path-components-nix "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")
+;(sys:file-path-components-nix "\Users\s2805534\Documents\code\extempore\extempore-dev\extempore\libs\external\sndfile.xtm")
+;(sys:file-path-windosify "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")
+
+
+(set! *xtmlib-ybot-filesystem-loaded* #f)

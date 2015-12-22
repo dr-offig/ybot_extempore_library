@@ -1,0 +1,80 @@
+;; Include guard
+(if (and (defined? '*xtmlib-plplot-loaded*) *xtmlib-plplot-loaded*)
+    (sys:load-escape "plplot library already loaded"))
+(define *xtmlib-plplot-loaded* #f)
+
+;; Dependencies
+(sys:load "std.xtm")
+
+
+;; load the libplplot dynamic library
+(bind-dylib libplplot
+  (cond ((string=? (sys:platform) "OSX")
+         "libplplot.dylib")
+        ((string=? (sys:platform) "Linux")
+         "libplplot.so")
+        ((string=? (sys:platform) "Windows")
+         "libplplot.dll")
+        (else
+         (begin (print-with-colors 'red 'default #f (print "Error"))
+                (print ": unsupported platform ")
+                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))
+
+
+;;;;;; Library bindings ;;;;;
+
+;; types
+(bind-alias PLFLT float)
+(bind-alias PLINT i32)
+(bind-alias PLBOOL PLINT)
+(bind-alias PLPointer i8*)
+(bind-alias PLSTR i8*)
+
+;; constants
+(bind-val PI double 3.1415926535897932384)
+
+;; functions
+(bind-lib libplplot c_plinit [void]*)
+(bind-lib libplplot c_plenv [void,PLFLT,PLFLT,PLFLT,PLFLT,PLINT,PLINT]*) ;; xmin, xmax, ymin, ymax, lock aspect ratio, axis type
+(bind-lib libplplot c_pllab [void,PLSTR,PLSTR,PLSTR]*) ;; x-axis label, y-axis label, title
+(bind-lib libplplot c_plpoin [void,PLINT,PLFLT*,PLFLT*,PLINT]*) ;; number of observations, x, y, ascii code for symbol
+(bind-lib libplplot c_plsym [void,PLINT,PLFLT*,PLFLT*,PLINT]*) ;; number of observations, x, y, Hershey font code for symbol
+(bind-lib libplplot c_plline [void,PLINT,PLFLT*,PLFLT*]*) ;; number of observations, x, y
+(bind-lib libplplot c_pljoin [void,PLFLT,PLFLT,PLFLT,PLFLT]*) ;;   x1, y1, x2, y2
+(bind-lib libplplot c_plptex [void,PLFLT,PLFLT,PLFLT,PLFLT,PLFLT,PLSTR]*) ;;   x, y, dx, dy, reference point, text 
+(bind-lib libplplot c_plfill [void,PLINT,PLFLT*,PLFLT*]*) ;; number of observations, x, y
+(bind-lib libplplot c_plhist [void,PLINT,PLFLT*,PLFLT,PLFLT,PLINT,PLINT]*) ;; number of obs, data, datamin, datamax, numbins, options
+(bind-lib libplplot c_plend [void]*)
+
+
+;;;;;; Testing ;;;;
+(bind-func test:[void]*
+  (lambda ()
+    (c_plinit)))
+
+
+(bind-func test2:[void]*
+  (lambda ()
+    (c_plenv (dtof -1.0) (dtof 1.0) (dtof -1.0) (dtof 1.0) 1 2)))
+
+
+(bind-func test3:[void]*
+  (lambda ()
+    (c_pllab "Horizontal" "Vertical" "Loverly Graph")))
+
+
+(bind-func test4:[void]*
+  (lambda ()
+    (let* ((n:i64 128) (cc:i64 0)
+           (x:PLFLT* (zalloc n))
+           (y:PLFLT* (zalloc n)))
+      (c_plinit)
+      (c_plenv (dtof -1.0) (dtof 1.0) (dtof -1.0) (dtof 1.0) 1 2)
+      ;;(c_pllab "Horizontal" "Vertical" "Loverly Graph")
+      (dotimes (cc n)
+        (pset! x cc (dtof (- (* 2.0 (* (i64tod cc) (/ 1.0 (i64tod n)))) 1.0)))
+        (pset! y cc (convert (sin (* 2.0 PI (convert (pref x cc)))))))
+      (c_plpoin (i64toi32 n) x y (i64toi32 42))
+      (c_plend))))
+
+(test4)

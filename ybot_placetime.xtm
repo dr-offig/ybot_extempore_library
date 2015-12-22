@@ -1,0 +1,64 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-placetime-loaded*) *xtmlib-ybot-placetime-loaded*)
+    (sys:load-escape "ybot_placetime library already loaded"))
+(define *xtmlib-ybot-placetime-loaded* #f)
+
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_placetime.xtm"))
+
+;; Dependencies
+;(sys:load "libs/sndfile.xtm")
+;(sys:load "libs/core/xthread.xtm")
+
+
+(call-as-xtlang
+ (clock_clock))
+
+
+;;; Calendar-ness
+
+;; year, month, day.
+(bind-type YbotDate <i64,i64,i64>)
+
+(bind-func YbotDate_print:[void,YbotDate*]*
+  (lambda (date)
+    (printf "%02lld / %02lld / %04lld" (tref date 2) (tref date 1) (tref date 0))
+    void))
+
+(bind-poly print YbotDate_print)
+(call-as-xtlang (print (YbotDate 1973 11 6)))
+
+(bind-func YbotDate2DayNumber:[i64,YbotDate*]*
+  (lambda (date)
+    (let* ((m:i64 (% (+ (tref date 1) 9) 12))
+           (y:i64 (- (tref date 0) (/ m 10)))
+           (d:i64 (tref date 2)))
+      (+ (* y 365) (/ y 4) (* -1 (/ y 100)) (/ y 400) (/ (+ (* m 306) 5) 10) (- d 1)))))
+
+
+(bind-func YbotDayNumber2Date:[YbotDate*,i64]*
+  (lambda (n)
+    (let* ((y:i64 (/ (+ (* 10000 n) 14780) 3652425))
+           (ddd:i64 (- n (+ (* y 365) (/ y 4) (* -1 (/ y 100)) (/ y 400)))))
+      (if (< 0 ddd) (begin (set! y (- y 1)) (set! ddd (- n (+ (* y 365) (/ y 4) (* -1 (/ y 100)) (/ y 400))))))
+      (let* ((mi:i64 (/ (+ 52 (* 100 ddd)) 3060))
+             (yy:i64 (+ y (/ (+ mi 2) 12)))
+             (mm (+ (% (+ mi 2) 12) 1))
+             (dd (+ ddd 1 (* -1 (/ (+ (* mi 306) 5) 10)))))
+        (YbotDate yy mm dd)))))
+      
+(call-as-xtlang (print (YbotDayNumber2Date 1)))
+
+(call-as-xtlang
+ (print (YbotDayNumber2Date (YbotDate2DayNumber (YbotDate 1973 11 34)))))
+
+(call-as-xtlang
+ (print (YbotDayNumber2Date 70000)))
+
+(call-as-xtlang
+ (/ (- (YbotDate2DayNumber (YbotDate 1973 11 6))
+       (YbotDate2DayNumber (YbotDate 2015 11 6)))
+    365))
+
+(set! *xtmlib-ybot-placetime-loaded* #t)

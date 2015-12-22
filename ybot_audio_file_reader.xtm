@@ -3,8 +3,13 @@
     (sys:load-escape "ybot_audio_file_reader library already loaded"))
 (define *xtmlib-ybot-audio-file-reader-loaded* #f)
 
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;;(sys:load (string-append *ybot-lib-dir* "/ybot_audio.xtm"))
+
 ;; Dependencies
-(sys:load "libs/sndfile.xtm")
+(sys:load "libs/aot-cache/audio_dsp.xtm")
+(sys:load "libs/aot-cache/sndfile.xtm")
 (sys:load "libs/core/xthread.xtm")
 
 (bind-val SEEK_SET i32 0)
@@ -153,7 +158,7 @@
     (let*
         ((playing_buffer:i64 1)
          (buffering:bool #f)
-         (info:sf_info* (salloc))
+         (info:SF_INFO* (salloc))
          (audiofile:audiofile_t (sf_open fname SFM_READ info)))
       (if (null? audiofile)
           (begin
@@ -161,11 +166,11 @@
             silent_reader)
           ;; when sf_open has read the file without error
           (let ((frames (sf_frames info))
-                (channels (sf_channels info))
-                (samplerate (sf_samplerate info)))
+                (channels (i32toi64 (sf_channels info)))
+                (samplerate (i32tof (sf_samplerate info))))
             (if (= read_buffer_width 0)
                 (set! read_buffer_width frames) 0)
-            (if (<> samplerate (convert SR))
+            (if (<> samplerate (convert SAMPLERATE))
                 (println "File samplerate" samplerate "doesn't match the current audio samplerate" SR ) void)
             (if (> read_buffer_width frames)
                 (set! read_buffer_width frames) 0)
@@ -235,25 +240,26 @@
 
 
 ;;;;; Example usage ;;;;;;
-;(bind-func dsp:DSP
-;  (let* ((playhead:i64 0)
-;         (playing:i64 1)
-;         (gain:float 0.5)
-;         (reader (YbotAudioFileReader_c "/path/to/audiofile.wav" (* SR 10)))
-;         (val:float 0.0))
-;    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
-;      (if (< 0 playing)
-;          (set! val (reader playhead channel))
-;          (set! val (dtof 0.0)))
-;      (cond ((= channel 0)
-;             (set! playhead (+ playhead 1))
-;             (cond ((> playhead (reader.frames))
-;                    (println "Looping")
-;                    (set! playhead 0)))))
-;      (* gain val))))
+(bind-func dsp:DSP
+ (let* ((playhead:i64 0)
+        (playing:i64 1)
+        (master_gain:float 2.0)
+        (reader (YbotAudioFileReader_c "/Volumes/Cybermat/Ultrasoundscapes/Tewantin_River_House/T64.WAV" (* 44100 10)))
+        (val:float 0.0))
+   (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+     (if (< 0 playing)
+         (set! val (reader playhead channel))
+         (set! val (dtof 0.0)))
+     (cond ((= channel 0)
+            (set! playhead (+ playhead 1))
+            (cond ((> playhead (reader.frames))
+                   (println "Looping")
+                   (set! playhead 0)))))
+     (* master_gain val))))
 
 
-;(dsp:set! dsp)
-;(dsp.playhead (random 0 10000000))
-
+(dsp:set! dsp)
+(dsp.master_gain 0.5)
+(dsp.playhead 0)
+(dsp.playing 0)
 (set! *xtmlib-ybot-audio-file-reader-loaded* #t)

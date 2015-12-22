@@ -1,0 +1,243 @@
+(if (and (defined? '*xtmlib-ybot-vg-loaded*) *xtmlib-ybot-vg-loaded*)
+    (sys:load-escape "ybot_vg library already loaded"))
+(define *xtmlib-ybot-vg-loaded* #f)
+
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_maths.xtm"))
+
+
+(sys:load "libs/external/glfw3.xtm")
+
+(bind-val width float 1024.)
+(bind-val height float 768.)
+
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_interaction_window (convert width) (convert height))))
+
+(sys:load "libs/external/nanovg.xtm")
+(bind-val vg NVGcontext* (nvg_create_context))
+(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
+
+;; background image
+(bind-val bg_paint NVGpaint*
+  (_nvgImagePattern vg
+                   0. 0.
+                   width height
+                   0.
+                   (nvgCreateImage vg "assets/images/image.png"  0)
+                   1.))
+
+
+(define *xtmlib-ybot-vg-loaded* #t)
+
+
+
+
+;;;;;;;;;;; IGNORE BELOW HERE ;;;;;
+
+;; (sys:load "libs/external/gl.xtm")
+;; (sys:load "libs/external/glfw3.xtm")
+
+;; (bind-func create_drawing_window:[GLFWwindow*,i32,i32]*
+;;   (lambda (width height)
+;;     (let ((window (glfw_init_and_create_interaction_window width height)))
+;;       (glEnable GL_LINE_SMOOTH)
+;;       (glEnable GL_BLEND)
+;;       (glEnable GL_STENCIL_TEST)
+;;       (glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
+;;       (glHint GL_LINE_SMOOTH_HINT GL_DONT_CARE)
+;;       (glLineWidth 1.5)
+;;       (glClearColor 1.0 0.0 0.0 0.0)
+;;       (glClear GL_COLOR_BUFFER_BIT)
+;;       (let ((glfw_key_callback:GLFWkeyfun
+;;              (lambda (window key scancode action mods)
+;;                (if (and (= key GLFW_KEY_ESCAPE) (= action GLFW_PRESS))
+;;                    (glfwSetWindowShouldClose window 1))
+;;                void)))
+;;         (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;         (glfwSetKeyCallback window (convert (get_native_fptr glfw_key_callback))))
+;;       (glfwSwapBuffers window)
+;;       window)))
+
+;; (create_drawing_window 400 400)
+
+
+;; (bind-func glDrawCircle:[void,float,float,float]*
+;;   (lambda (x y r)
+;;     (let* ((n:i64 360)
+;;            (vertices:float* (salloc (* 2 n)))
+;;            (i:i64 0))
+;;       (dotimes (i n)
+;;         (let* ((theta (/ (* 2.0 (acos -1.0) (i64tod i)) (i64tod n)))
+;;                (u (+ x (dtof (* (ftod r) (cos theta)))))
+;;                (v (+ y (dtof (* (ftod r) (sin theta))))))
+;;           (pset! vertices (* 2 i) (correct_x u ar))
+;;           (pset! vertices (+ (* 2 i) 1) v)))
+;;       ;(glEnableClientState GL_VERTEX_ARRAY)
+;;       (glVertexPointer 2 GL_FLOAT 0 (bitcast vertices i8*))
+;;       (glDrawArrays GL_LINE_LOOP 0 (i64toi32 n))
+;;       ;(glDisableClientState GL_VERTEX_ARRAY)
+;;       void
+;;         )))
+
+
+;; (bind-func glDrawTriangle:[void,float,float,float,float,float,float]*
+;;   (let ((vertices:float* (zalloc 6))
+;;         (pvbo:GLuint* (zalloc 1)))
+;;     (glGenBuffers 1 pvbo)
+;;     (glBindBuffer GL_ARRAY_BUFFER (pref vbo 0))
+;;     (lambda (x1 y1 x2 y2 x3 y3)
+;;       (pfill! vertices x1 y1 x2 y2 x3 y3)
+;;       (glBufferData GL_ARRAY_BUFFER 6 vertices GL_DYNAMIC_DRAW))))
+      
+
+
+;; ;(create_drawing_window 1000 600)
+;; (bind-func render:[void]*
+;;   (let ((dirty:bool #t))
+;;     (lambda ()
+;;       (if dirty
+;;           (begin
+;;             (glLoadIdentity)
+
+;;             ;; Clear the background (with alpha-trails)
+;;             (glColor4f 0.0 0.0 0.0 0.05)  
+;;             (glBegin GL_QUADS)
+;;             (glVertex2f -1.0 -1.0)
+;;             (glVertex2f -1.0 1.0)
+;;             (glVertex2f 1.0 1.0)
+;;             (glVertex2f  1.0 -1.0)
+;;             (glEnd)
+            
+;;             ;; Draw in last segment
+;;             (glPointSize 10.0)
+;;             (glColor3f 1.0 1.0 0.0)
+;;             (glBegin GL_POINTS)
+;;             (glVertex2f x y)
+;;             (glEnd)))
+;;       void)))
+        
+
+;; (bind-func render_single_trace:[void,double*,float*]*
+;;   (let ((last_x:float 0.0)
+;;         (last_y:float 0.0))
+;;     (lambda ($phase:double* $trace:float*)
+;;       (let ((x:float (dtof (linterp -1.0 1.0 (pref $phase 0))))
+;;             (y:float (pref $trace 0)))
+;;         (glLoadIdentity)
+;;                                         ; Clear the background (with alpha-trails)
+;;         (glColor4f 0.0 0.0 0.0 0.05)
+;;         (glBegin GL_QUADS)
+;;         (glVertex2f -1.0 -1.0)
+;;         (glVertex2f -1.0 1.0)
+;;         (glVertex2f 1.0 1.0)
+;;         (glVertex2f  1.0 -1.0)
+;;         (glEnd)
+;;                                         ; Draw in last segment
+;;         (glPointSize 10.0)
+;;         (glColor3f 1.0 1.0 0.0)
+;;         (glBegin GL_POINTS)
+;;         (glVertex2f x y)
+;;         (glEnd)
+
+;;         ;(if (< last_x x)
+;;         ;    (begin
+;;         ;      (glBegin GL_LINES)
+;;         ;      (glVertex2f last_x last_y)
+;;         ;      (glVertex2f x y)
+;;         ;      (glEnd)))
+;;         (set! last_x x)
+;;         (set! last_y y)
+;;         void))))
+
+
+
+
+
+
+
+
+
+
+
+;; (define fullscreen #f)
+;; ;; (define width 1920.0)
+;; ;; (define height 1200.0)
+;; (define width 1024.0)
+;; (define height 768.0)
+;; (bind-val width float width)
+;; (bind-val height float height)
+
+;; ;; setup opengl
+;; (define *gl-ctx* (gl:make-ctx ":0.0" fullscreen 0.0 0.0 width height))
+
+;; ;; first try to load from prebuilt stdlib
+;; (sys:load "libs/xtm.xtm")
+;; ;; failing that compile on-the-fly
+;; (sys:load "libs/external/shaders.xtm")
+;; (sys:load "libs/openvg.xtm")
+
+;; ;; init xtm render pipeline
+;; (xtm_render_setup width height)
+;; (if (<> (xtm-vg-create-context width height) 1) (xtm_vg_print_error))
+
+;; (bind-func post:XTMRENDERCB
+;;   (let ((image:VGImage (xtm_load_vgimage "/Users/s2805534/Desktop/Screen Shot 2014-06-14 at 2.11.05 pm.png"))
+;;         (path (xtm_create_path))
+;;         (fill (vgCreatePaint))
+;;         (fill_color:xtm_color* (alloc))
+;;         (stroke (vgCreatePaint))
+;;         (stroke_color:xtm_color* (alloc))
+;;         (clear_color:xtm_color* (alloc)))
+;;     (afill! fill_color 1.0 0.0 0.0 0.5)
+;;     (afill! stroke_color 0.0 0.0 1.0 0.5)
+;;     (afill! clear_color 0.0 0.0 0.0 1.0)
+;;     (xtm_paint_set_fill fill fill_color)
+;;     (xtm_paint_set_stroke stroke stroke_color 10.)
+;;     (lambda (frame shader m v p data)
+;;       (let ((i:float 0.0))
+;;         (xtm_vg_reset_matrices)
+;;         (xtm_vg_clear (convert width) (convert height) clear_color)
+;;         ;; create the path (using the add_circle closure)
+;;         (dotimes (i 200.0)
+;;           (xtm_add_ellipse
+;;            path
+;;            (+ (/ width 2.0) (* 200. (cos (* i 0.00025 (convert frame)))))
+;;            (+ (/ height 2.0) (* 100. (tan (* 0.0001 i (convert frame)))))
+;;            30.
+;;            30.))
+;;         ;; draw the image
+;;         (if (null? image) void (vgDrawImage image))
+;;         ;; draw the paths
+;;         (xtm_draw_path_keep path)
+;;         ;; cleanup
+;;         (xtm_clear_path path)
+;;         (xtm_vg_print_error)
+;;         void))))
+
+;; (bind-func gl_render
+;;   (lambda ()
+;;     (xtm_render null null null post null)
+;;     void))
+
+;; (define gl-loop
+;;   (lambda (time delta-t)
+;;     (let ((late-by (- (now) time))
+;;           (next-frame-time (+ time (* *second* delta-t))))
+;;       (if (> late-by 0)
+;;           (print "Late by " (* 1.0 (/ late-by *second*)) "seconds\n")
+;;           (begin
+;;             (gl_render)
+;;             (gl:swap-buffers *gl-ctx*)))
+;;       (callback (* 0.9 next-frame-time)
+;;                 'gl-loop
+;;                 next-frame-time
+;;                 delta-t))))
+
+;; (gl-loop (now) 1/20)
+
+

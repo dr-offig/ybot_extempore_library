@@ -2,8 +2,6 @@
 (if (and (defined? '*xtmlib-ybot-math-loaded*) *xtmlib-ybot-math-loaded*)
     (sys:load-escape "ybot_math library already loaded"))
 (define *xtmlib-ybot-math-loaded* #f)
-(sys:load "libs/math.xtm")
-
 
 (bind-func at:[!a,!b]*
   (lambda (ptr)
@@ -231,34 +229,5 @@
             (i64toi1 1))
           (i64toi1 0)))))
 
-
-;(bind-func test_mats:[void]*
-;  (lambda ()
-;    (let ((a:Matrix:<float*,i64,i64>* (EnuCols 4 3))
-;          (b:Matrix:<float*,i64,i64>* (EnuRows 3 2))
-;          (c:Matrix:<float*,i64,i64>* (Matrix_of_Zeros 4 2)))
-;      (println "")
-;      (println "Layout of A in memory is: ")
-;      (print_serial a)
-;      (println "The (0,1) element of A is: ")
-;      (println (mref a 0 1))
-;      (mset b 0 0 (dtof 7.7))
-;      (MatrixMult_inPlace a b c)
-;      (println "A:")
-;      (println a)
-;      (println "B:")
-;      (println b)
-;      (println "C:")
-;      (println c)
-;      void)))
-
-;(test_mats)
-
-;(bind-type LinearUpdater <[Matrix*,Matrix*]*>)
-;(bind-type LinearSystem <[Vector*,Vector*]*>)
-           
-;(bind-func linear_update_c:[LinearSystem,i64,i64]*
-;  (lambda (num_inputs:i64 num_outputs:i64)
-;    (let ((jacobian:Matrix*))
 
 (set! *xtmlib-ybot-math-loaded* #t)

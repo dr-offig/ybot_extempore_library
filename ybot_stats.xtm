@@ -1,0 +1,89 @@
+;; First of all need a plotting function
+;(define w_sc (gl:screen-width))
+;(define h_sc (gl:screen-height))
+(define w_sc 400)
+(define h_sc 400)
+(bind-val w i64 w_sc)
+(bind-val h i64 h_sc)
+(define ar_sc (/ w_sc h_sc))
+(bind-val ar float (exact->inexact ar_sc))
+
+
+(define glctx (gl:make-ctx-screen ":0.0" #f 0.0 0.0
+                           (exact->inexact w_sc)
+                           (exact->inexact h_sc)
+                           0))
+
+
+(bind-func init-graphics
+  (lambda ()
+    (glEnable GL_LINE_SMOOTH)
+    (glEnable GL_POINT_SMOOTH)
+    (glEnable GL_BLEND)
+    (glBlendFunc GL_SRC_ALPHA GL_ONE)
+    (glHint GL_LINE_SMOOTH_HINT GL_DONT_CARE)
+    (glLineWidth 1.5)
+    (glPointSize 5.0)
+    (glClearColor 0.0 0.0 0.0 1.0)
+    (glClear GL_COLOR_BUFFER_BIT)))
+
+(init-graphics)
+(gl:swap-buffers glctx)
+
+(bind-func correct_x:[float,float,float]*
+  (lambda (x:float aspect:float)
+    (/ x aspect)))
+
+(bind-func glDrawRadial:[void,float,float,float]*
+  (lambda (phase r1 r2)
+    (let ((theta ( * STWOPI phase))
+          (x1 (* r1 (cos theta)))
+          (y1 (* r1 (sin theta)))
+          (x2 (* r2 (cos theta)))
+          (y2 (* r2 (sin theta))))
+      (glBegin GL_LINES)
+      (glVertex2f (correct_x x1 ar) y1)
+      (glVertex2f (correct_x x2 ar) y2)
+      (glEnd))
+    void))
+
+
+(bind-func glDrawCircle:[void,float,float,float]*
+  (lambda (x y r)
+    (let* ((n:i64 360)
+           (vertices:float* (salloc (* 2 n)))
+           (i:i64 0))
+      (dotimes (i n)
+        (let* ((theta (/ (* 2.0 (acos -1.0) (i64tod i)) (i64tod n)))
+               (u (+ x (dtof (* (ftod r) (cos theta)))))
+               (v (+ y (dtof (* (ftod r) (sin theta))))))
+          (pset! vertices (* 2 i) (correct_x u ar))
+          (pset! vertices (+ (* 2 i) 1) v)))
+      (glEnableClientState GL_VERTEX_ARRAY)
+      (glVertexPointer 2 GL_FLOAT 0 (bitcast vertices i8*))
+      (glDrawArrays GL_LINE_LOOP 0 (i64toi32 n))
+      (glDisableClientState GL_VERTEX_ARRAY)
+      void
+        )))
+
+
+(bind-func gl_render
+  (lambda ()
+    (xtm_render null null null post null)
+    void))
+
+(define gl-loop
+  (lambda (time delta-t)
+    (let ((late-by (- (now) time))
+          (next-frame-time (+ time (* *second* delta-t))))
+      (if (> late-by 0)
+          (print "Late by " (* 1.0 (/ late-by *second*)) "seconds\n")
+          (begin
+            (gl_render)
+            (gl:swap-buffers *gl-ctx*)))
+      (callback (* 0.9 next-frame-time)
+                'gl-loop
+                next-frame-time
+                delta-t))))
+
+(gl-loop (now) 1/20)

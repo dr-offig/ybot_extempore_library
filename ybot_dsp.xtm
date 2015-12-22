@@ -1,0 +1,163 @@
+;; Dependencies
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_maths.xtm"))         
+(sys:load "libs/std.xtm")
+
+
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-dsp-loaded*) *xtmlib-ybot-dsp-loaded*)
+    (sys:load-escape "ybot_dsp library already loaded"))
+(define *xtmlib-ybot-dsp-loaded* #f)
+
+
+;; Basic phasor
+;(bind-func cycle:[void,SAMPLE*,SAMPLE]*
+;  (lambda ($phase:double* freq:double)
+;    (mod_step $phase (/ freq SAMPLERATE) 1.0)
+;    void))
+
+;; TYPES
+(bind-alias SIGNAL [SAMPLE,i64]*)
+
+(bind-func constant_zero_signal:SIGNAL
+  (lambda (time:i64)
+      0.0))
+
+(bind-func constant_one_signal:SIGNAL
+  (lambda (time:i64)
+    1.0))
+
+;(bind-func constant_signal:SIGNAL
+;  (let ((c:SAMPLE 0.0))
+;    (lambda (time:i64)
+;      c)))
+
+
+;; SIGNAL GENERATORS
+(bind-func constant_signal_c:[SIGNAL,SAMPLE]*
+  (lambda (val:SAMPLE)
+    (lambda (time:i64)
+      val)))
+    
+
+(bind-func single_pulse_c:[SIGNAL,i64]*
+  (lambda (pulse_time:i64)
+    (lambda (time:i64)
+      (if (= time pulse_time) 1.0 0.0))))
+
+(bind-func square_pulse_c:[SIGNAL,i64,i64]*
+  (lambda (pulse_time:i64 width:i64)
+    (lambda (time:i64)
+      (if (and (> time pulse_time) (< time (+ pulse_time width)))  1.0 0.0)))) 
+
+(bind-func pulse_train_c:[SIGNAL,i64,SAMPLE]*
+  (lambda (pulse_time:i64 pulse_freq:SAMPLE)
+    (lambda (time:i64)
+      (let* ((period:i64 (convert (/ SAMPLERATE pulse_freq)))
+             (elapsed:i64 (modulo (- time pulse_time) period)))
+        (cond
+         ((= elapsed 0) (set! pulse_time time) 1.0)
+         (else 0.0))))))
+
+
+(bind-func ramp_signal_c:[SIGNAL,i64,i64,SAMPLE,SAMPLE]*
+  (lambda (start_time:i64 duration:i64 start_value:SAMPLE end_value:SAMPLE)
+    (lambda (time:i64)
+      (let* ((elapsed:SAMPLE (i64tof (- time start_time)))
+             (t:SAMPLE (/ elapsed (i64tof duration))))
+        (cond
+         ((< time start_time) start_value)
+         ((> time (+ start_time duration)) end_value)
+         (else (linterp start_value end_value t)))))))                          
+
+
+(bind-func ramp_signal_c:[SIGNAL,i64,i64,SAMPLE,SAMPLE]*
+  (lambda (start_time:i64 duration:i64 start_value:SAMPLE end_value:SAMPLE)
+    (lambda (time:i64)
+      (let* ((elapsed:SAMPLE (i64tof (- time start_time)))
+             (t:SAMPLE (/ elapsed (i64tof duration))))
+        (cond
+         ((< t 0.0) (set! t 0.0))
+         ((> t 1.0) (set! t 1.0)))
+        (linterp start_value end_value t)))))                         
+
+
+(bind-func square_pulse_train_c:[SIGNAL,i64,i64,SAMPLE]*
+  (lambda (pulse_time:i64 pulse_width:i64 pulse_freq:SAMPLE)
+    (lambda (time:i64)
+      (let* ((period:i64 (convert (/ SAMPLERATE pulse_freq)))
+             (elapsed:i64 (modulo (- time pulse_time) period)))
+        (cond
+         ((= elapsed 0) (set! pulse_time time) 1.0)
+         ((< elapsed pulse_width)  1.0)
+         (else 0.0))))))
+
+
+(bind-func phasor_c:[SIGNAL,SAMPLE]*
+  (lambda (freq:SAMPLE)
+    (let ((phase:SAMPLE 0.0))
+      (lambda (time:i64)
+        (let ((output:SAMPLE phase))
+          (set! phase (modulo (+ phase (/ freq SAMPLERATE)) 1.0))
+          output)))))
+    
+
+(bind-func phasor2_c:[SIGNAL,SIGNAL]*
+  (lambda (freq:SIGNAL)
+    (let ((phase:SAMPLE 0.0))
+      (lambda (time:i64)
+        (let ((output:SAMPLE phase))
+          (set! phase (modulo (+ phase (/ (freq time) SAMPLERATE)) 1.0))
+          output)))))
+
+
+;(bind-func sine_signal_c:[SIGNAL,SAMPLE]*
+;  (lambda (freq:SAMPLE)
+;    (let (($phase:SAMPLE* (zalloc)))
+;      (lambda (time:i64)
+;        (cycle $phase freq)
+;        (sin (* TWOPI (pref $phase 0)))))))
+
+(bind-func sine_signal2_c:[SIGNAL,SIGNAL]*
+  (lambda (freq:SIGNAL)
+    (let ((phasor (phasor2_c freq)))
+      (lambda (time:i64)
+        (sin (* STWOPI (phasor time)))))))
+
+
+;;;;;;;;;;;;;; Signal Algebra ;;;;;;;;;;
+(bind-func sig_mult:[SIGNAL,SIGNAL,SIGNAL]*
+  (lambda (sig1:SIGNAL sig2:SIGNAL)
+    (lambda (time:i64)
+      (* (sig1 time) (sig2 time)))))
+
+(bind-func sig_sum:[SIGNAL,SIGNAL,SIGNAL]*
+  (lambda (sig1:SIGNAL sig2:SIGNAL)
+    (lambda (time:i64)
+      (* (sig1 time) (sig2 time)))))
+
+
+(bind-alias unary_sample_op [SAMPLE,SAMPLE]*)
+(bind-alias binary_sample_op [SAMPLE,SAMPLE,SAMPLE]*)
+(bind-alias ternary_sample_op [SAMPLE,SAMPLE,SAMPLE,SAMPLE]*)
+
+(bind-func sig_unary_op:[SIGNAL,unary_sample_op,SIGNAL]*
+  (lambda (op:unary_sample_op sig:SIGNAL)
+    (lambda (time:i64)
+      (op (sig time)))))
+
+
+(bind-func sig_binary2_op:[SIGNAL,binary_sample_op,SIGNAL,SIGNAL]*
+  (lambda (op:binary_sample_op sig1:SIGNAL sig2:SIGNAL)
+    (lambda (time:i64)
+      (op (sig1 time) (sig2 time)))))
+
+
+(bind-func sig_ternary_op:[SIGNAL,ternary_sample_op,SIGNAL,SIGNAL,SIGNAL]*
+  (lambda (op:ternary_sample_op sig1:SIGNAL sig2:SIGNAL sig3:SIGNAL)
+    (lambda (time:i64)
+      (op (sig1 time) (sig2 time) (sig3 time)))))
+
+
+(set! *xtmlib-ybot-dsp-loaded* #t)

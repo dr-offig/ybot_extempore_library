@@ -1,0 +1,64 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-sounddb-loaded*) *xtmlib-ybot-sounddb-loaded*)
+    (sys:load-escape "ybot_sound[dB] library already loaded"))
+(define *xtmlib-ybot-sounddb-loaded* #f)
+
+;; Dependencies
+;(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_audio_file_reader.xtm"))         
+
+;; Time
+
+(define libSystem (sys:load-dylib "libSystem.dylib"))
+(bind-lib-type libSystem tm <i64,i64,i64,i64,i64,i64,i64,i64,i64,i64,i8*>)
+;(bind-alias time_t i64)
+(bind-lib-func libSystem time [i64,i64*]* 8192)
+(bind-lib-func libSystem localtime [tm*,i64*]* 8192)
+(bind-lib-func libSystem mktime [i64,tm*]* 8192)
+(bind-lib-func libSystem ctime [i8*,i64*]* 8192)
+
+
+
+(bind-func test-time:[void]*
+  (lambda ()
+    (let ((pt:i64* (salloc)))
+      (pset! pt 0 0)
+      (print (Str (ctime pt)))))) 
+
+
+(bind-func test-time:[void]*
+  (lambda ()
+    (let ((monday:tm* (salloc)))
+      (tset! tm ))))
+      
+(test-time)
+  
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; A simple data structure for holding filenames, places and times
+;;
+;; 0  unique ID
+;; 1  Name 
+;; 2  Description 
+;; 3  Place (description)
+;; 4  GPS coordinates
+;; 5  local start date/time
+;; 6  local end date/time
+;; 7  timezone (including daylight savings, as GMT +{timezone} hours)
+
+(bind-type GPS_coordinates <float,float>)
+(bind-type YbotBioFieldRecording <i64,i8*,i8*,i8*,GPS_coordinates*,
+
+
+
+
+
+(testorama3 "/Volumes/Cybermat/Tallaroo/07072015/Site1-070715_12pm.wav")
+
+(set! *xtmlib-ybot-sounddb-loaded* #t)
+
+
+

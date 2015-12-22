@@ -1,0 +1,203 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-spectroscope-loaded*) *xtmlib-ybot-spectroscope-loaded*)
+    (sys:load-escape "ybot_spectroscope library already loaded"))
+(define *xtmlib-ybot-spectroscope-loaded* #f)
+
+;(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+
+ ;; Dependencies
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_adt.xtm"))         
+(sys:load "libs/std.xtm")
+
+;(bind-val SCOPE_BUFFER_SIZE i64 44100)
+;(define scope-buffer-size 44100))
+
+;(define $horizontal_scan_phase (make_global_float))
+;(define $horizontal_scan_freq (make_global_double))
+;(define $trace1 (make_global_float))
+
+(bind-func bin_spectrum
+  (let ((i:i64 0)
+        (j:i64 0)
+        (sum 0.0))
+    (lambda (spectrum:double* freq_buffer:cpxd* fft_window_size:i64 nbins:i64)
+      (let ((bin_width (/ (/ fft_window_size nbins) 2)))
+        (dotimes (i nbins)
+          (set! sum 0.0)
+          (dotimes (j (* i bin_width) bin_width)
+            (set! sum (+ sum (magnitude_cpxd (pref-ptr freq_buffer j)))))
+          (pset! spectrum i (* 1.0 (/ sum (i64tod bin_width)))))))))
+
+;; take the time_domain signal (time_buffer) and return the spectrum
+(bind-func mag_spectrum
+  (let ((nbins 512) ; number of bins for spectrogram
+        (spectrum:double* (zalloc nbins))
+        (i:i64 0))
+    (lambda (audio:double* fft_window_size time_buffer freq_buffer)
+      (dotimes (i fft_window_size)
+        ;; add sum of L and R channels into real component
+        ;; of time_buffer (which is a buffer of complex values
+        (tset! (pref-ptr time_buffer i) 0
+               (+ (pref audio (* 2 i)) ; L channel
+                  (pref audio (+ 1 (* 2 i)))))) ; R channel
+      ;; take DFT, store results in freq_buffer
+      (fftr time_buffer freq_buffer fft_window_size)
+      (bin_spectrum spectrum freq_buffer fft_window_size nbins))))
+
+
+
+;(bind-func dsp:DSP 100000000 ; make sure we allocate enough memory
+;  (let ((audio_length 60)
+;        (audio:double* (zalloc (* 44100 2 audio_length)))
+;        (samples_read (read_audio_data "/path/to/audiofile.wav"
+;                                       audio
+;                                       0
+;                                       (* 44100 audio_length)))
+;        (playhead 0)
+;        (fft_window_size 1024)
+;        (time_buffer:cpxd* (zalloc fft_window_size))
+;        (freq_buffer:cpxd* (zalloc fft_window_size))
+;        (i:i64 0))
+;    (lambda (in time chan dat)
+;      (if (and (= (modulo playhead fft_window_size) 0)
+;               (= chan 0.0))
+;          (mag_spectrum (pref-ptr audio playhead) fft_window_size
+;                        time_buffer freq_buffer))
+      ;; increment playhead once per (stereo) pair of samples
+;      (if (= chan 1.0)
+;          (set! playhead (modulo (+ playhead 1)
+;                                 (* audio_length 44100))))
+;      ;; play audio
+;      (pref audio (+ (dtoi64 chan) (* 2 playhead))))))
+
+
+
+(bind-func dsp:DSP 10000000
+  (let* (
+         (fft_window_size 1024)
+         (time_buffer:cpxd* (zalloc fft_window_size))
+         (freq_buffer:cpxd* (zalloc fft_window_size))
+         (hop:i64 256)
+         (cc:Zp (Zp 0 hop))
+         )
+    (lambda (in time chan dat)
+      (if (and (= (modulo playhead fft_window_size) 0)
+               (= chan 0.0))
+          (mag_spectrum (pref-ptr audio playhead) fft_window_size
+                        time_buffer freq_buffer))
+      (cond
+       ((= chan 0)
+        (mod_inc cc 
+        (cycle $horizontal_scan_phase horizontal_scan_freq)
+        (let (
+              (val1 (* (env_mod1 time) (* 0.5 (left time))))
+              ;(val1 (random))
+              )
+          (pset! history history_cc val1)
+          (set! history_cc (modulo (+ history_cc 1) history_size))
+          (pset! $trace1 cc (dtof (linterp -1.0 1.0 (pref $horizontal_scan_phase 0))))
+          (pset! $trace1 (+ cc 1) val1)
+          (set! cc (modulo (+ cc 2) num_frames))
+          (* gain1 val1)
+          ))
+       ((= chan 1)
+        (let* (
+               (xa (pref history history_cc))
+               (xb (pref history (modulo (- history_cc 1) history_size)))
+               (val2 (filter-calc history history_cc history_size))
+              )
+          (pset! $trace2 cc (dtof (linterp -1.0 1.0 (pref $horizontal_scan_phase 0))))
+          (pset! $trace2 (+ cc 1) val2)
+          ;(set! cc (modulo (+ cc 2) num_frames))
+          (* gain2 val2)
+          0.0))
+       (else 0.0)))))
+
+(set_global_double $horizontal_scan_phase 1.0)
+(dsp.$horizontal_scan_phase $horizontal_scan_phase)
+(dsp.horizontal_scan_freq 100.0)
+
+(dsp:set! dsp)
+
+
+;;;;;;;;;;;;;;;;;;;; 2D version ;;;;;;;;;;;;;;;;
+(define width 500.0)
+(define height 500.0)
+(bind-val width float 500.0)
+(bind-val height float 500.0)
+
+(define glctx (gl:make-ctx ":0.0" #f 0.0 0.0 width height))
+
+;; init xtm render pipeline
+(xtm_render_setup width height)
+;(if (<> (xtm-vg-create-context width height) 1) (xtm_vg_print_error))
+
+(bind-func post:XTMRENDERCB
+  (let* (
+        ;(image:VGImage (xtm_load_vgimage "/Users/s2805534/Pictures/quirky/party_zombies.jpg"))
+        (path (xtm_create_path))
+        (fill (vgCreatePaint))
+        (fill_color:xtm_color* (alloc))
+        (stroke (vgCreatePaint))
+        (stroke_color:xtm_color* (alloc))
+        (clear_color:xtm_color* (alloc))
+        (num_bins:i64 256)
+        (n:i64 0)
+        (spectrum:float* (zalloc num_bins))
+        )
+    (dotimes (n num_bins)
+      (pset! spectrum n (convert (random))))
+    (afill! fill_color 1.0 0.0 0.0 0.5)
+    (afill! stroke_color 0.0 0.0 1.0 0.5)
+    (afill! clear_color 0.0 0.0 0.0 1.0)
+    (xtm_paint_set_fill fill fill_color)
+    (xtm_paint_set_stroke stroke stroke_color 1.)
+    (lambda (frame shader m v p data)
+      (let ((i:i64 0)
+            (dx:float (/ width (convert num_bins))))
+        (xtm_vg_reset_matrices)
+        (xtm_vg_clear (convert width) (convert height) clear_color)
+        ;; create the path (using the add_circle closure)
+        (dotimes (i num_bins)
+          (xtm_add_rect
+           path
+           (+ 0.0 (* (convert i) dx))
+           0.0
+           (/ dx 2.0)
+           (* height (pref spectrum i))))
+        ;; draw the image
+        ;(if (null? image) void (vgDrawImage image))
+        ;; draw the paths
+        (xtm_draw_path_keep path)
+        ;; cleanup
+        (xtm_clear_path path)
+        (xtm_vg_print_error)
+        void))))
+
+(bind-func gl_render
+  (lambda ()
+    (xtm_render null null null post null)
+    void))
+
+(define gl-loop
+  (lambda (time delta-t)
+    (let ((late-by (- (now) time))
+          (next-frame-time (+ time (* *second* delta-t))))
+      (if (> late-by 0)
+          (print "Late by " (* 1.0 (/ late-by *second*)) "seconds\n")
+          (begin
+            (gl_render)
+            (gl:swap-buffers *gl-ctx*)))
+      (callback (* 0.9 next-frame-time)
+                'gl-loop
+                next-frame-time
+                delta-t))))
+
+(gl-loop (now) 1)
+
+(set! *xtmlib-ybot-spectroscope-loaded* #t)
+
+
+

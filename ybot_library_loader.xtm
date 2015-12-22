@@ -1,0 +1,23 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-audio-file-reader-loaded*) *xtmlib-ybot-audio-file-reader-loaded*)
+    (sys:load-escape "ybot_audio_file_reader library already loaded"))
+(define *xtmlib-ybot-audio-file-reader-loaded* #f)
+
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_audio.xtm"))
+
+
+
+;; load the libsndfile dynamic library
+(bind-dylib libsndfile
+  (cond ((string=? (sys:platform) "OSX")
+         "libsndfile.dylib")
+        ((string=? (sys:platform) "Linux")
+         "libsndfile.so")
+        ((string=? (sys:platform) "Windows")
+         "libsndfile-1.dll")
+        (else
+         (begin (print-with-colors 'red 'default #f (print "Error"))
+                (print ": unsupported platform ")
+                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))

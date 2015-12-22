@@ -1,0 +1,20 @@
+;; Include guard
+(if (and (defined? '*xtmlib-sdl-loaded*) *xtmlib-sdl-loaded*)
+    (sys:load-escape "sdl library already loaded"))
+(define *xtmlib-sdl-loaded* #f)
+
+;; Dependencies
+;(if (not (defined? '*ybot-lib-dir*))
+;    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;(sys:load (string-append *ybot-lib-dir* "/sdl.xtm"))         
+;(sys:load "libs/std.xtm")
+
+(define libsdl (sys:load-dylib "/Users/s2805534/Dropbox/ybot/src/extempore_libs/libSDL-1.2.0.dylib"))
+(if (not libsdl)
+    (begin (print-with-colors *impc:compiler:pretty-print-error-color* 'default #t (print "\nError"))(print ": could not load libsndfile dynamic library")(error "")))
+
+
+(bind-lib libsdl SDL_Init [i64,i32]*)
+
+
+(set! *xtmlib-sdl-loaded* #t)

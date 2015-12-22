@@ -1,0 +1,51 @@
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_maths.xtm"))         
+(sys:load "libs/std.xtm")
+
+
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-dsp-loaded*) *xtmlib-ybot-dsp-loaded*)
+    (sys:load-escape "ybot_dsp library already loaded"))
+(define *xtmlib-ybot-dsp-loaded* #f)
+
+(bind-alias PEEKER [SAMPLE]*)
+(bind-alias UNARY [SAMPLE,SAMPLE]*)
+(bind-alias BINARY [SAMPLE,SAMPLE,SAMPLE]*)
+(bind-alias TERNARY [SAMPLE,SAMPLE,SAMPLE,SAMPLE]*)
+(bind-alias UNARY_INPLACE [void,SAMPLE]*)
+(bind-alias BINARY_INPLACE [void,SAMPLE,SAMPLE]*)
+(bind-alias TERNARY_INPLACE [void,SAMPLE,SAMPLE,SAMPLE]*)
+(bind-func DUMMY_PEEKER:PEEKER (lambda () 0.0))
+(bind-func DUMMY_UNARY_INPLACE:UNARY_INPLACE (lambda (x:SAMPLE) void))
+
+
+;;                             phase,  getter(),  setter(val),        increment(freq)
+(bind-type Phasor <SAMPLE,PEEKER,UNARY_INPLACE,UNARY_INPLACE>)
+(bind-func Phasor_make:[Phasor*,SAMPLE]*
+  (lambda (start_phase:SAMPLE)
+    (let ((this (Phasor start_phase DUMMY_PEEKER DUMMY_UNARY_INPLACE DUMMY_UNARY_INPLACE)))
+      (tset! this 1 (lambda () (tref this 0)))
+      (tset! this 2 (lambda (value:SAMPLE) (tset! this 0 value) void))
+      (tset! this 3 (lambda (freq:SAMPLE) (tset! this 0 (+ (/ freq SAMPLERATE) (tref this 0))) void))
+      this)))
+
+(bind-func Phasor_phase:[SAMPLE,Phasor]*
+  (lambda (phasor:Phasor)
+    (tref phasor 0))) 
+
+;(define my_phasor_scm Phasor (Phasor_make 0.0))
+;(Phasor_phase my_phasor_scm)
+
+(bind-func test_phasor:[void]*
+  (lambda ()
+    (let ((phasor1 (Phasor_make 0.0)))
+      (printf "Phasor start value: %2.2f\n" (tref phasor1 0))
+      ((tref phasor1 2) 0.3)
+      (printf "Phase now: %2.2f\n" (tref phasor1 0))
+      void)))
+
+(test_phasor)
+       
+
+(define *xtmlib-ybot-dsp-loaded* #t)
