@@ -1,0 +1,265 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-audio-file-writer-loaded*) *xtmlib-ybot-audio-file-writer-loaded*)
+    (sys:load-escape "ybot_audio_file_writer library already loaded"))
+(define *xtmlib-ybot-audio-file-writer-loaded* #f)
+
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;;(sys:load (string-append *ybot-lib-dir* "/ybot_audio.xtm"))
+
+;; Dependencies
+(sys:load "libs/core/audio_dsp.xtm")
+(sys:load "libs/external/sndfile.xtm")
+(sys:load "libs/core/xthread.xtm")
+
+(bind-val SEEK_SET i32 0)
+(bind-val SEEK_CUR i32 1)
+(bind-val SEEK_END i32 2)
+
+(bind-alias audiofile_t i8*)
+(bind-alias mutex_t i8*)
+
+;;;;;;;;;;;;;;;;;;;;;;
+;; YbotAudioFileBuffer type ;;
+;;;;;;;;;;;;;;;;;;;;;;
+;; 0 SAMPLE* (data)
+;; 1 number of frames in buffer
+;; 2 channels
+;; 3 samplerate
+;; 4 which frame of the parent audiofile corresponds to the start of the buffer
+;; 5 current playhead frame (relative to start of buffer)
+;; 6 current writehead frame (relative to the start of buffer)
+;; 7 the AudioFile from which it is drawn
+;; 8 an integer ID
+;; 9 A Mutex for thread synchronisation
+;; 10 status flag
+(bind-type YbotAudioFileBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,audiofile_t,i64,mutex_t*,bool>)
+(bind-alias YAFB YbotAudioFileBuffer)
+(bind-val YAFB_before i64 -1)
+(bind-val YAFB_well_inside i64 0)
+(bind-val YAFB_near_end i64 1)
+(bind-val YAFB_past i64 2)
+(bind-val YAFB_busy i64 -2)
+
+
+(bind-func YbotAudioFileBuffer_c:[YbotAudioFileBuffer*,i64,i64,SAMPLE,audiofile_t,i64]*
+  (lambda (frames channels samplerate audiofile id)
+    (let ((output:YAFB* (zalloc))
+          (mutex_ptr:mutex_t* (zalloc))
+          (data:SAMPLE* (zalloc (* frames channels))))
+      (pset! mutex_ptr 0 (mutex_create))
+      (tset! output 0 data)
+      (tset! output 1 frames)
+      (tset! output 2 channels)
+      (tset! output 3 samplerate)
+      (tset! output 4 0)
+      (tset! output 5 0)
+      (tset! output 6 0)
+      (tset! output 7 audiofile)
+      (tset! output 8 id)
+      (tset! output 9 mutex_ptr)
+      (tset! output 10 #t)
+      output)))
+
+(bind-func YbotAudioFileBuffer_d:[void,YAFB*]*
+  (lambda (buffer)
+    (mutex_destroy (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YAFB_lock:[void,YAFB*]*
+  (lambda (buffer)
+    (mutex_lock (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YAFB_unlock:[void,YAFB*]*
+  (lambda (buffer)
+    (mutex_unlock (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YAFB_trylock:[bool,YAFB*]*
+  (lambda (buffer)
+    (= 0 (i32toi64 (mutex_trylock (pref (tref buffer 9) 0))))))
+
+(bind-func YAFB_load_from_file_offset:[i64,YbotAudioFileBuffer*,i64]*
+  (lambda (buffer start_frame)
+    (YAFB_lock buffer)
+    (let*
+        ((data (tref buffer 0))
+         (frames (tref buffer 1))
+         (audiofile (tref buffer 7)))
+      (sf_seek audiofile start_frame SEEK_SET)
+      (let ((frames_read (sf_readf audiofile data frames)))
+        (tset! buffer 4 start_frame)
+        (tset! buffer 5 start_frame)
+        (tset! buffer 10 #t)
+        (YAFB_unlock buffer)
+        frames_read))))
+
+(bind-func YAFB_ready:[bool,YbotAudioFileBuffer*]*
+  (lambda (buffer)
+    (if (YAFB_trylock buffer)
+        (let ((output (tref buffer 10)))
+          (YAFB_unlock buffer)
+          output)
+        #f)))
+        
+(bind-func YAFB_fetch_sample:[void,YbotAudioFileBuffer*,i64,i64,bool*,SAMPLE*]*
+  (lambda (buffer frame channel success output)
+    (if (YAFB_trylock buffer)
+        (let*
+            ((data (tref buffer 0))
+             (frames (tref buffer 1))
+             (channels (tref buffer 2))
+             (start_frame (tref buffer 4))
+             (desired_frame (- frame start_frame)))
+          (if (and (<= 0 desired_frame) (< desired_frame frames))
+              (begin
+                (pset! output 0 (pref data (+ channel (* desired_frame channels))))
+                (pset! success 0 #t)
+                (YAFB_unlock buffer)
+                void)
+              (begin
+                (pset! output 0 (convert 0.0))
+                (pset! success 0 #f)
+                (YAFB_unlock buffer)
+                void)))
+        (begin
+          (pset! output 0 (convert 0.0))
+          (pset! success 0 #f)
+          void))))
+
+
+(bind-func YAFB_contains:[i64,YbotAudioFileBuffer*,i64]*
+  (lambda (buffer frame) ;; -1 = before buffer, 0 = well inside buffer, 1 = near end of buffer, 2 = past buffer
+    (if (YAFB_trylock buffer)
+        (let*
+            ((start_frame (tref buffer 4))
+             (lngth (tref buffer 1))
+             (end_frame (+ start_frame lngth))
+             (output:i64 0))
+         (cond
+          ((< frame start_frame) (set! output YAFB_before))
+          ((and (>= frame start_frame) (< frame (+ start_frame (/ lngth 2)))) (set! output YAFB_well_inside))
+          ((< frame end_frame) (set! output YAFB_near_end))
+          (else (set! output YAFB_past)))
+         (YAFB_unlock buffer)
+         output)
+        YAFB_busy)))
+           
+
+(bind-alias YbotAudioFileReader_t [SAMPLE,i64,i64]*)
+
+(bind-func silent_reader:YbotAudioFileReader_t
+  (lambda (frame channel)
+    (convert 0.0)))
+
+(bind-func YbotAudioFileReader_c:[YbotAudioFileReader_t,i8*,i64]*
+  (lambda (fname read_buffer_width)
+    (let*
+        ((playing_buffer:i64 1)
+         (buffering:bool #f)
+         (info:SF_INFO* (salloc))
+         (audiofile:audiofile_t (sf_open fname SFM_READ info)))
+      (if (null? audiofile)
+          (begin
+            (println "soundfile error:" (sf_strerror audiofile))
+            silent_reader)
+          ;; when sf_open has read the file without error
+          (let ((frames (sf_frames info))
+                (channels (i32toi64 (sf_channels info)))
+                (samplerate (i32tof (sf_samplerate info))))
+            (if (= read_buffer_width 0)
+                (set! read_buffer_width frames) 0)
+            (if (<> samplerate (convert SAMPLERATE))
+                (println "File samplerate" samplerate "doesn't match the current audio samplerate" SR ) void)
+            (if (> read_buffer_width frames)
+                (set! read_buffer_width frames) 0)
+            ;; initialise and allocate memory for the AudioBuffer
+            (let*
+                ((frames_read 0) (current_file_read_frame 0)
+                 (buffer1:YAFB* (YbotAudioFileBuffer_c frames channels (convert samplerate) audiofile 1))
+                 (buffer2:YAFB* (YbotAudioFileBuffer_c frames channels (convert samplerate) audiofile 2)))
+              ;; read the audio data from the file into buffer1
+              (println "About to read into buffer1")
+              (set! frames_read (YAFB_load_from_file_offset buffer1 0))
+              (println "Read in " frames_read " frames")
+              (lambda (frame channel)
+                (let*
+                    ((f (modulo frame frames))
+                     (c (modulo channel channels))
+                     (playbuf (if (= playing_buffer 1) buffer1 buffer2))
+                     (idlebuf (if (= playing_buffer 1) buffer2 buffer1))
+                     (p (YAFB_contains playbuf f))
+                     (success:bool* (salloc))
+                     (value:SAMPLE* (salloc)))
+                  (cond
+                   ((= p YAFB_near_end)
+                    (cond
+                     ((and (not buffering) (YAFB_ready playbuf) (YAFB_ready idlebuf)) ;; time to load some more data into the idle buffer
+                      (spawn (let ((new_start_frame (+ read_buffer_width (tref playbuf 1))))
+                               (lambda () (YAFB_load_from_file_offset  idlebuf new_start_frame) void)))
+                      (set! buffering #t)
+                      void)
+                     (else void)))
+                   ((or (= p YAFB_past) (= p YAFB_before))
+                    (if (YAFB_ready idlebuf) (set! buffering #f) #f)
+                    (let ((q (YAFB_contains idlebuf f)))
+                      (cond
+                       ((= q 0)
+                        (if (= playing_buffer 1)
+                            (begin
+                              (set! playing_buffer 2)
+                              (set! playbuf buffer2)
+                              (set! idlebuf buffer1)
+                              void)
+                            (begin
+                              (set! playing_buffer 1)
+                              (set! playbuf buffer1)
+                              (set! idlebuf buffer2)
+                              void)))
+                       (else void))))
+                   ((= p YAFB_well_inside) ;; All is well :)
+                    void) 
+                   (else ;; Something weird is happening - generate noise so we can notice it
+                    (pset! value 0 (convert (* 0.1 (random))))
+                    void
+                    ))
+                  (YAFB_fetch_sample playbuf f c success value)
+                  (pref value 0)))))))))
+
+  
+(bind-func YbotAudioFileReader_d:[i32,YbotAudioFileReader_t]*
+  (lambda (yafr)
+    (let*
+        ((af:i8* (yafr.audiofile))
+         (buffer1:YAFB* (yafr.buffer1))
+         (buffer2:YAFB* (yafr.buffer2)))
+      (YbotAudioFileBuffer_d buffer2)
+      (YbotAudioFileBuffer_d buffer1)
+      (sf_close af))))
+
+
+;;;;; Example usage ;;;;;;
+(bind-func dsp:DSP
+ (let* ((playhead:i64 0)
+        (playing:i64 1)
+        (master_gain:float 2.0)
+        (reader (YbotAudioFileReader_c "/Volumes/Cybermat/Ultrasoundscapes/Tewantin_River_House/T64.WAV" (* 44100 10)))
+        (val:float 0.0))
+   (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+     (if (< 0 playing)
+         (set! val (reader playhead channel))
+         (set! val (dtof 0.0)))
+     (cond ((= channel 0)
+            (set! playhead (+ playhead 1))
+            (cond ((> playhead (reader.frames))
+                   (println "Looping")
+                   (set! playhead 0)))))
+     (* master_gain val))))
+
+
+(dsp:set! dsp)
+(dsp.master_gain 0.5)
+(dsp.playhead 0)
+(dsp.playing 0)
+(set! *xtmlib-ybot-audio-file-reader-loaded* #t)
