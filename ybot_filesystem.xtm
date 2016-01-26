@@ -6,69 +6,180 @@
 ;(if (not (defined? '*ybot-lib-dir*))
 ;    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
 ;(sys:load (string-append *ybot-lib-dir* "/ybot_????.xtm"))
+(sys:load "libs/external/apr.xtm")
+
+(bind-macro (@ . args)
+            `(pref ,(car args) 0))
+
+(bind-macro (spack_out . args)
+            `(begin (print ,(cdr args))
+                    ,(car args)))
+
+(bind-val YFS_MAX_LINE_LENGTH i64 8096)
 
 
-(bind-val EOF i64 -1)
+(bind-func yfs_file_length:[i64,i8*]*
+  (let ((pool:apr_pool_t* (apr_pool_create)))
+    (zone_cleanup (apr_pool_destroy pool))
+    (lambda (path)
+      (let ((info:apr_finfo_t* (salloc)))
+        (apr_stat info path APR_FINFO_SIZE pool)
+        (tref info 9)))))
+
+(bind-func yfs_open:[apr_file_t*,i8*]*
+  (let ((pool:apr_pool_t* (apr_pool_create)))
+    (zone_cleanup (apr_pool_destroy pool))
+    (lambda (path)
+      (let ((handle_ref:apr_file_t** (zalloc)))
+        (apr_file_open handle_ref path (+ APR_FOPEN_READ APR_FOPEN_WRITE) APR_FPROT_OS_DEFAULT pool)
+        (pref handle_ref 0)))))
 
 
-(bind-func schmick:[void,i8*]*
-  (lambda (filepath:i8*)
-    (let*
-        ((sz:i64 (* 80 4 200))
-         (cmd:i8*
-          (let ((tmp:i8* (zalloc (+ (strlen filepath) 7))))
-            (strcpy tmp "ls -al ")))
-         (f (popen (strcat cmd filepath) "r"))
-         (buf:i8* (salloc sz))
-         (reader:[void]*
-          (lambda ()
-            (let ((c:i64 (i32toi64 (fgetc f))))
-              (if (<> c EOF)
-                  (begin
-                    (printf "%c" (i64toi8 c))
-                    (reader))
-                  (begin 
-                    (printf "\n--------------------------------------------------------\n")
-                    void))))))
-      (reader))))
+(bind-func yfs_close:[apr_status_t,apr_file_t*]*
+  (lambda (handle)
+    (apr_file_close handle)))
+
+
+(bind-func yfs_current_playhead:[apr_off_t,apr_file_t*]*
+  (let ((playhead_ref:apr_off_t* (zalloc)))
+    (lambda (handle)
+      (pset! playhead_ref 0 0)
+      (apr_file_seek handle APR_CUR playhead_ref)
+      (@ playhead_ref))))
+
+  
+
+(bind-func yfs_file_rewind:[apr_off_t,apr_file_t*]*
+  (let ((playhead_ref:apr_off_t* (zalloc)))
+    (lambda (handle)
+      (pset! playhead_ref 0 0)
+      (apr_file_seek handle APR_SET playhead_ref)
+      (@ playhead_ref))))
+
+
+(bind-func yfs_file_seek:[apr_off_t,apr_file_t*,apr_off_t]*
+  (let ((playhead_ref:apr_off_t* (zalloc)))
+    (lambda (handle index)
+      (let*
+          ((current (yfs_current_playhead handle))
+           (forward:bool (>= index current))
+           (style (if forward APR_CUR APR_SET))
+           (offset (if forward (- index current) index)))
+        (pset! playhead_ref 0 offset)
+        (apr_file_seek handle style playhead_ref))
+      (@ playhead_ref))))
+
+
+(bind-func yfs_read_byte:[i8,apr_file_t*]*
+  (let ((c:i8* (zalloc)))
+    (lambda (handle)
+      (apr_file_getc c handle)
+      (@ c))))
+
+(bind-func yfs_peek_byte:[i8,apr_file_t*]*
+  (let ((playhead_ref:i64* (zalloc))
+        (c:i8* (zalloc)))
+    (lambda (handle)
+      (apr_file_getc c handle)
+      (pset! playhead_ref 0 -1)
+      (apr_file_seek handle APR_CUR playhead_ref)
+      (@ c))))
+
+(bind-func yfs_read_line:[i8*,apr_file_t*]*
+  (let ((buf:i8* (zalloc (+ YFS_MAX_LINE_LENGTH 1))))
+    (lambda (handle)
+      (let*
+          ((finish
+            (lambda (m:i64)
+              (let ((output:i8* (zalloc m)))
+                    (set! output (strcpy output buf))
+                    output)))
+           (loop
+            (lambda (n:i64)
+              (let ((c:i8 (yfs_read_byte handle)))
+                (if (= (apr_file_eof handle) APR_EOF)
+                    (finish n)
+                    (begin
+                      (cond
+                       ((or (= c (i64toi8 10)) (= c (i64toi8 13)))
+                        (pset! buf n 0)
+                        (let ((d:i8 (yfs_peek_byte handle)))
+                          (if (or (= d (i64toi8 10)) (= d (i64toi8 13)))
+                              (yfs_read_byte handle)))
+                        (finish n))
+                     (else
+                      (pset! buf n c)
+                      (if (< n YFS_MAX_LINE_LENGTH)
+                         (loop (+ n 1))
+                         (begin
+                           (pset! buf (+ n 1) 0)
+                           (finish (+ n 1))))))))))))
+        (loop 0)))))
+                          
+      
+        
+;;;;;;;;;;;;;;;;;;;;; CRUD BELOW ;;;;;;;;;;;;;;;;;;;;;;;;
+;(bind-val EOF i64 -1)
+
+
+;; (bind-func schmick:[void,i8*]*
+;;   (lambda (filepath:i8*)
+;;     (let*
+;;         ((sz:i64 (* 80 4 200))
+;;          (cmd:i8*
+;;           (let ((tmp:i8* (zalloc (+ (strlen filepath) 7))))
+;;             (strcpy tmp "ls -al ")))
+;;          (f (popen (strcat cmd filepath) "r"))
+;;          (buf:i8* (salloc sz))
+;;          (reader:[void]*
+;;           (lambda ()
+;;             (let ((c:i64 (i32toi64 (fgetc f))))
+;;               (if (<> c EOF)
+;;                   (begin
+;;                     (printf "%c" (i64toi8 c))
+;;                     (reader))
+;;                   (begin 
+;;                     (printf "\n--------------------------------------------------------\n")
+;;                     void))))))
+;;       (reader))))
                   
 
-(schmick ".")
+;(schmick ".")
 
 
-(bind-func is_directory:[bool,i8*]*
-  (lambda (filepath:i8*)
-    (let*
-        ((cmd:i8*
-          (let ((tmp:i8* (zalloc (+ (strlen filepath) 256))))
-            (strcpy tmp "stat -f %T " )))
-         (f (popen (strcat cmd filepath) "r")))
-      (let ((c:i32 (fgetc f)))
-        (pclose f)
-        (= c (i64toi32 47))))))
+;; (bind-func is_directory:[bool,i8*]*
+;;   (lambda (filepath:i8*)
+;;     (let*
+;;         ((cmd:i8*
+;;           (let ((tmp:i8* (zalloc (+ (strlen filepath) 256))))
+;;             (strcpy tmp "stat -f %T " )))
+;;          (f (popen (strcat cmd filepath) "r")))
+;;       (let ((c:i32 (fgetc f)))
+;;         (pclose f)
+;;         (= c (i64toi32 47))))))
     
 
-(is_directory "Wormhole")
+;; (is_directory "Wormhole")
 
 
-(bind-func sys_query:[i8*,i8*,i8*]
-  (lambda (cmd:i8* arg:i8*)
-    (let* ((block_size:i64 1014)
-           (output:i8* (zalloc block_size))
-           (tmp:i8* (salloc (+ (strlen cmd) (strlen arg)))))
-      (strcpy tmp cmd) (strcat tmp arg)
-      (let* ((f (popen tmp "r"))
-             (reader:[void,i8*i64]*
-              (lambda (buf sz)
-                (let ((n (fread buf 1 sz)))
-                  (if (< n sz)
-                      output
-                      (let* ((sz2 (* sz 2))
-                             (buf2:i8* (zalloc sz2)))
-                        (memcpy buf2 buf sz)
-                        (set! output buf2)
+;; (bind-func sys_query:[i8*,i8*,i8*]
+;;   (lambda (cmd:i8* arg:i8*)
+;;     (let* ((block_size:i64 1014)
+;;            (output:i8* (zalloc block_size))
+;;            (tmp:i8* (salloc (+ (strlen cmd) (strlen arg)))))
+;;       (strcpy tmp cmd) (strcat tmp arg)
+;;       (let* ((f (popen tmp "r"))
+;;              (reader:[void,i8*i64]*
+;;               (lambda (buf sz)
+;;                 (let ((n (fread buf 1 sz)))
+;;                   (if (< n sz)
+;;                       output
+;;                       (let* ((sz2 (* sz 2))
+;;                              (buf2:i8* (zalloc sz2)))
+;;                         (memcpy buf2 buf sz)
+;;                         (set! output buf2)
 
-                        (reader mm)
+;;                         (reader mm)
                             
                     
              
@@ -78,42 +189,42 @@
   
 
 
-(bind-func descend_into_dir:[bool,i8*]*
-  (lambda (filepath)
-    (if (is_directory filepath)
-        (let (((cmd:i8*
-          (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
-            (strcpy tmp "file ")))
-               (f (popen (strcat cmd dirpath) "r"))))))))
+;; (bind-func descend_into_dir:[bool,i8*]*
+;;   (lambda (filepath)
+;;     (if (is_directory filepath)
+;;         (let (((cmd:i8*
+;;           (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
+;;             (strcpy tmp "file ")))
+;;                (f (popen (strcat cmd dirpath) "r"))))))))
 
 
 
-(bind-func descend_into_dir:[void,i8*]*
-  (lambda (dirpath:i8*)
-    (let*
-        ((sz:i64 (* 80 4 200))
-         (cmd:i8*
-          (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
-            (strcpy tmp "file ")))
-         (f (popen (strcat cmd dirpath) "r"))
-         (buf:i8* (salloc sz))
-         (reader:[void]*
-          (lambda ()
-            (let ((c:i64 (i32toi64 (fgetc f))))
-              (if (<> c EOF)
-                  (begin
-                    (printf "%c" (i64toi8 c))
-                    (reader))
-                  (begin 
-                    (printf "\n--------------------------------------------------------\n")
-                    void))))))
-      (reader))))
+;; (bind-func descend_into_dir:[void,i8*]*
+;;   (lambda (dirpath:i8*)
+;;     (let*
+;;         ((sz:i64 (* 80 4 200))
+;;          (cmd:i8*
+;;           (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
+;;             (strcpy tmp "file ")))
+;;          (f (popen (strcat cmd dirpath) "r"))
+;;          (buf:i8* (salloc sz))
+;;          (reader:[void]*
+;;           (lambda ()
+;;             (let ((c:i64 (i32toi64 (fgetc f))))
+;;               (if (<> c EOF)
+;;                   (begin
+;;                     (printf "%c" (i64toi8 c))
+;;                     (reader))
+;;                   (begin 
+;;                     (printf "\n--------------------------------------------------------\n")
+;;                     void))))))
+;;       (reader))))
 
-(descend_into_dir ".")
+;; (descend_into_dir ".")
 
-(bind-func walk-dir:[void,i8*]*
-  (lambda (dir)
-    (file dir)))
+;; (bind-func walk-dir:[void,i8*]*
+;;   (lambda (dir)
+;;     (file dir)))
 
 
 
