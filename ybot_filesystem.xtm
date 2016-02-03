@@ -11,9 +11,12 @@
 (bind-macro (@ . args)
             `(pref ,(car args) 0))
 
+ ;; (bind-macro (spack_out . args)
+ ;;            `(begin (print ,(cdr args))
+ ;;                    ,(car args)))
+
 (bind-macro (spack_out . args)
-            `(begin (print ,(cdr args))
-                    ,(car args)))
+                    ,(car args))
 
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
 
@@ -70,10 +73,10 @@
       (@ playhead_ref))))
 
 
-(bind-func yfs_read_byte:[i8,apr_file_t*]*
+(bind-func yfs_read_byte:[i8,apr_file_t*,bool*]*
   (let ((c:i8* (zalloc)))
-    (lambda (handle)
-      (apr_file_getc c handle)
+    (lambda (handle pEOF)
+      (pset! pEOF 0 (= (apr_file_getc c handle) APR_EOF))
       (@ c))))
 
 (bind-func yfs_peek_byte:[i8,apr_file_t*]*
@@ -85,9 +88,9 @@
       (apr_file_seek handle APR_CUR playhead_ref)
       (@ c))))
 
-(bind-func yfs_read_line:[i8*,apr_file_t*]*
+(bind-func yfs_read_line:[i8*,apr_file_t*,bool*]*
   (let ((buf:i8* (zalloc (+ YFS_MAX_LINE_LENGTH 1))))
-    (lambda (handle)
+    (lambda (handle pEOF)
       (let*
           ((finish
             (lambda (m:i64)
@@ -96,8 +99,8 @@
                     output)))
            (loop
             (lambda (n:i64)
-              (let ((c:i8 (yfs_read_byte handle)))
-                (if (= (apr_file_eof handle) APR_EOF)
+              (let ((c:i8 (yfs_read_byte handle pEOF)))
+                (if (@ pEOF)
                     (finish n)
                     (begin
                       (cond
@@ -105,7 +108,7 @@
                         (pset! buf n 0)
                         (let ((d:i8 (yfs_peek_byte handle)))
                           (if (or (= d (i64toi8 10)) (= d (i64toi8 13)))
-                              (yfs_read_byte handle)))
+                              (yfs_read_byte handle pEOF)))
                         (finish n))
                      (else
                       (pset! buf n c)

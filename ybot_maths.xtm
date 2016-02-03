@@ -11,6 +11,15 @@
 (sys:load "libs/core/adt.xtm")
 (sys:load "libs/core/math_ext.xtm")
 
+(bind-func isnumeric:[bool,i8*]*
+  (lambda (str)
+    (rmatch "^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$" str)))
+
+(bind-func isnumeric:[bool,i8*]*
+  (lambda (str)
+    (rmatch "(^[-+]?[0-9]+(\.)?[0-9]*(([eE][-+])?[0-9]+)?$)|(^[-+]?[0-9]*(\.)?[0-9]+(([eE][-+])?[0-9]+)?$)" str)))
+
+
 (bind-func pcopy!:[void,!a,!a,i64]*
   (lambda (target:!a source:!a n:i64)
     (let ((i:i64 0)
@@ -224,12 +233,6 @@
 ;;           (i64toi1 0)))))
 
 
-(bind-func Matrix_test:[Matrix{double*}*]*
-  (lambda ()
-    (Mat (1.0 2.0) (3.0 4.0) (5.0 6.0))))
-
-
-(Matrix_test)
 
 (bind-func mget:[!b,Matrix{!a}*,i64,i64]*
   (lambda (m i j)
@@ -240,93 +243,121 @@
       (pref (tref m 0) index))))
 
 
-(bind-func Matrix_test3
-  (lambda ()
-    (let ((rows:i64 3) (i:i64 0)
-          (cols:i64 2) (j:i64 0))
-      (let ((m (Mat (1. 2.) (3. 4.) (5. 6.))))
+(bind-func mset:[void,Matrix{!a}*,i64,i64,!b]*
+  (lambda (m i j value)
+    (let ((index:i64
+           (if (tref m 3) ;; row_major or column_major?
+               (+ j (* (tref m 2) i))
+               (+ i (* (tref m 1) j)))))
+      (pset! (tref m 0) index value)
+      void)))
+
+
+(bind-func Matrix_print:[void,Matrix{!a}*]*
+  (lambda (m)
+    (let ((rows:i64 (tref m 1)) (i:i64 0)
+          (cols:i64 (tref m 2)) (j:i64 0))
         (dotimes (i rows)
           (printout "| ")
           (dotimes (j cols)
             (printout (mget m i j) " "))
           (printout "|\n"))
-        m))))
-          
+        void)))
+
+
+
+;; (bind-func Matrix_test3
+;;   (lambda ()
+;;     (let ((rows:i64 3) (i:i64 0)
+;;           (cols:i64 2) (j:i64 0))
+;;       (let* ((data:double* (zalloc (* rows cols)))
+;;              (m (Matrix data rows cols #f)))
+;;         (dotimes (i rows)
+;;           (printout "| ")
+;;           (dotimes (j cols)
+;;             (printout (mget m i j) " "))
+;;           (printout "|\n"))
+;;         (dotimes (i rows)
+;;           (dotimes (j cols)
+;;             (mset m i j (random))))
+;;         (printf "\n\n\n")
+;;         (dotimes (i rows)
+;;           (printout "| ")
+;;           (dotimes (j cols)
+;;             (printout (mget m i j) " "))
+;;           (printout "|\n"))
+;;         m))))
+
+;; (Matrix_test3)
           
 
-(bind-func Matrix_read_from_csv:[Matrix{double}*,i8*]*
+(bind-func Matrix_read_from_csv:[Matrix{double*}*,i8*]*
   (lambda (path)
     (let* ((handle (yfs_open path))
            (rows:i64 0)
            (cols:i64 0)
-           (scanloop:[i64,i64]*
-            (lambda (n:i64)
-              (let ((line (yfs_read_line handle)))
-                (if (= (apr_file_eof handle) APR_SUCCESS)
-                    (scanloop (+ n 1))
-                    (begin
-                      (yfs_file_rewind handle)
-                      n)))))
-           (burnin:[i64]*
-            (let ((mark:i64 0))
-              (lambda ()
-                (yfs_file_seek handle mark)
-                (let ((line (yfs_read_line handle)))
-                  (if (= (apr_file_eof handle) APR_SUCCESS)
-                      (let* ((entries:List{String*}* (regex_split  "," (String line)))
-                             (c:i64 (length entries)))
-                        (if (< 0 c)
-                            (let* ((tmp:i8* (String_cstr (car entries)))
-                                   (pValue:double* (salloc))
-                                   (res:double (sscanf tmp " %lf " pValue)))
-                              (cond
-                               ((< 0 res) (yfs_file_seek handle mark) c) ;; return the number of columns found
-                               (else (set! mark (yfs_current_playhead handle)) (burnin))))
-                            (spack_out 0 "Something really weird happened trying to read: " path "\n")))
-                      (spack_out 0 path " not a numeric csv file\n"))))))
-           (readloop:[i64,Matrix{double}*,i64]*
-            (lambda (mat n)
-              (let ((bunkam:bool #f)
-                    (line (yfs_read_line handle)))
-                (if (= (apr_file_eof handle) APR_SUCCESS)
-                    (let* ((entries:List{String*}* (regex_split  "," (String line)))
-                           (c:i64 (length entries)))
-                      (if (<> c cols)
-                          (begin
-                            (set! bunkam #t)
-                            (spack_out -1 "Improperly formed CSV file\n"))
-                          (let ((cc:i64 0))
-                            (dotimes (cc c)
-                              (let* ((entry:String* (nth entries))
-                                     (tmp:i8* (String_cstr entry))
-                                     (pValue:double* (salloc))
-                                     (res:double (sscanf tmp " %lf " pValue)))
-                              (cond
-                               ((< 0 res)
-                                (mset mat n cc (@ pValue))
-                                (readloop mat (+ n 1)))
-                               (else
-                                (set! bunkam #t)
-                                (spack_out -1 "Improperly formed CSV file\n"))))))))
-                    (if bunkam -1 1))))))
-      (set! rows (scanloop 0))
-      (set! cols (burnin))
-      (let ((output:Matrix{double}* (Matrix rows cols)))
-        (if (< 0 (readloop output 0))
-            output
-            NULL)))))
+           (scan_done:bool* (zalloc))
+           (burn_done:bool* (zalloc))
+           (read_done:bool* (zalloc))
+           (scanloop:[i64,i64,bool*]*
+            (lambda (n done)
+              (if (= (% n 1000) 0) (println "Scanning file: now reading line " n))
+              (let ((line (yfs_read_line handle done)))
+                (if (and (not (@ done)) (< 0 (strlen line)))
+                  (scanloop (+ n 1) done)
+                  (begin
+                    (yfs_file_rewind handle)
+                    n)))))
+         (burnin:[i64,bool*]*
+           (let ((mark:i64 0))
+             (lambda (done)
+               (println "Burning in csv file " path ". Up to character number " mark)
+               (yfs_file_seek handle mark)
+               (let ((line (yfs_read_line handle done)))
+                 (if (not (@ done))
+                     (let* ((entries (regex_split  "," (String line)))
+                            (c:i64 (length entries)))
+                       (if (< 0 c)
+                           (let* ((buf:i8* (String_cstr (car entries))))
+                             (cond
+                              ((isnumeric buf) (yfs_file_seek handle mark) c) ;; return the number of columns found
+                              (else (set! mark (yfs_current_playhead handle)) (burnin done))))
+                           0))
+                     0)))))
+          (readloop:[i64,Matrix{double*}*,i64,bool*]*
+           (lambda (mat n done)
+             (if (= (% n 1000) 0) (println "Reading line " n))
+             (let ((bunkam:bool #f)
+                   (line (yfs_read_line handle done)))
+               (if (not (@ done))
+                   (let* ((entries (regex_split  "," (String line)))
+                          (c:i64 (length entries)))
+                     (if (<> c cols)
+                         (begin (set! bunkam #t) -1)
+                         (let ((cc:i64 0))
+                           (dotimes (cc c)
+                             (let* ((next_token (nth entries cc))
+                                   (tmp (String_cstr next_token))
+                                   (value (atof tmp)))
+                               (mset mat n cc value)))
+                             (readloop mat (+ n 1) done))))
+                   (if bunkam -1 1))))))
+      (pset! scan_done 0 #f)
+      (pset! burn_done 0 #f)
+      (pset! read_done 0 #f)
+      (set! rows (scanloop 0 scan_done))
+      (set! cols (burnin burn_done))
+      (let* ((data:double* (zalloc (* rows cols)))
+             (output:Matrix{double*}* (Matrix data rows cols #f)))
+        (readloop output 0 read_done)
+        (yfs_close handle)
+        output))))
 
-      
-           
-           
-                      
-                
-           
-               
-      
-          
-      
-    
+;; (bind-func test5
+;;   (lambda (path:i8*)
+;;     (Matrix_read_from_csv path)))
 
+
+;; (print (test5 "/Users/s2805534/Dropbox/ybot/grants/DECRA2017/AIR_1_4/test.csv"))
 
 (set! *xtmlib-ybot-math-loaded* #t)

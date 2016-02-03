@@ -50,12 +50,16 @@
 ;;;;;; Testing ;;;;
 (bind-func test:[void]*
   (lambda ()
-    (c_plinit)))
+    (c_plinit)
+    (c_plend)))
 
+(test)
 
 (bind-func test2:[void]*
   (lambda ()
-    (c_plenv (dtof -1.0) (dtof 1.0) (dtof -1.0) (dtof 1.0) 1 2)))
+    (c_plinit)
+    (c_plenv (dtof -1.0) (dtof 1.0) (dtof -1.0) (dtof 1.0) 1 2)
+    (c_plend)))
 
 
 (bind-func test3:[void]*
