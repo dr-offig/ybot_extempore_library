@@ -5,7 +5,7 @@
 
 (if (not (defined? '*ybot-lib-dir*))
     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;;(sys:load (string-append *ybot-lib-dir* "/ybot_audio.xtm"))
+;;(sys:load (string-append *ybot-lib-dir* "/samplerate.xtm"))
 
 ;; Dependencies
 (sys:load "libs/aot-cache/audio_dsp.xtm")
@@ -18,6 +18,7 @@
 
 (bind-alias audiofile_t i8*)
 (bind-alias mutex_t i8*)
+
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ;; YbotAudioFileBuffer type ;;
@@ -60,6 +61,37 @@
       (tset! output 9 mutex_ptr)
       (tset! output 10 #t)
       output)))
+
+
+;; (bind-func YbotAudioFileBuffer_c:[YbotAudioFileBuffer*,i64,i64,SAMPLE,audiofile_t,i64]*
+;;   (lambda (frames channels samplerate audiofile id)
+;;     (let* ((output:YAFB* (zalloc))
+;;           (mutex_ptr:mutex_t* (zalloc))
+;;           (data:SAMPLE* (zalloc (* frames channels)))
+;;           (pError:i32* (zalloc))
+;;           (converter_src_callback:src_callback_t
+;;            (let* ((inputSampleRate:SAMPLE samplerate)
+;;                   (inputFrames:i64 frames)
+;;                   (inputBuffer:float* (zalloc (* inputFrames channels)))) 
+;;              (lambda (pUserData:i8* pBuffer:float**)
+;;                (pset! pBuffer 0 inputBuffer)
+;;                (* inputFrames channels))))
+;;           (src:SRC_STATE* (src_callback_new converter_src_callback SRC_SINC_BEST_QUALITY (i64toi32 channels) pError null)))
+;;       (pset! mutex_ptr 0 (mutex_create))
+;;       (tset! output 0 data)
+;;       (tset! output 1 frames)
+;;       (tset! output 2 channels)
+;;       (tset! output 3 samplerate)
+;;       (tset! output 4 0)
+;;       (tset! output 5 0)
+;;       (tset! output 6 0)
+;;       (tset! output 7 audiofile)
+;;       (tset! output 8 id)
+;;       (tset! output 9 mutex_ptr)
+;;       (tset! output 10 #t)
+;;       (tset! output 11 src)
+;;       output)))
+
 
 (bind-func YbotAudioFileBuffer_d:[void,YAFB*]*
   (lambda (buffer)
@@ -239,12 +271,13 @@
       (sf_close af))))
 
 
+
 ;;;;; Example usage ;;;;;;
 (bind-func dsp:DSP
  (let* ((playhead:i64 0)
         (playing:i64 1)
-        (master_gain:float 2.0)
-        (reader (YbotAudioFileReader_c "/Volumes/Cybermat/Ultrasoundscapes/Tewantin_River_House/T64.WAV" (* 44100 10)))
+        (master_gain:float 0.2)
+        (reader (YbotAudioFileReader_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav" (* 44100 10)))
         (val:float 0.0))
    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
      (if (< 0 playing)
@@ -260,6 +293,7 @@
 
 (dsp:set! dsp)
 (dsp.master_gain 0.5)
-(dsp.playhead 0)
-(dsp.playing 0)
+;; (dsp.playhead 0)
+(dsp.playing 1)
+
 (set! *xtmlib-ybot-audio-file-reader-loaded* #t)

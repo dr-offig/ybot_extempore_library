@@ -6,6 +6,7 @@
 ;(if (not (defined? '*ybot-lib-dir*))
 ;    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
 ;(sys:load (string-append *ybot-lib-dir* "/ybot_????.xtm"))
+(sys:load "libs/core/adt.xtm")
 (sys:load "libs/external/apr.xtm")
 
 (bind-macro (@ . args)
@@ -19,6 +20,86 @@
                     ,(car args))
 
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
+
+(cond
+ ((string=? (sys:platform) "OSX") (bind-val fs i8 47))
+ ((string=? (sys:platform) "Linux") (bind-val fs i8 47))
+ ((string=? (sys:platform) "Windows") (bind-val fs i8 92)))
+
+(cond
+ ((string=? (sys:platform) "OSX") (bind-val return String* (String (let ((s:i8* (zalloc 2))) (pfill! s 10 0) s))))
+ ((string=? (sys:platform) "Linux") (bind-val return String* (String (let ((s:i8* (zalloc 2))) (pfill! s 10 0) s))))
+ ((string=? (sys:platform) "Windows") (bind-val return String* (String (let ((s:i8* (zalloc 3))) (pfill! s 13 10 0) s)))))
+
+(bind-val slash String*
+  (String (let ((s:i8* (zalloc 2))) (pfill! s fs 0) s)))
+(bind-val comma String* (String ","))
+(bind-val tab String* (String "\t"))
+
+
+
+;;;;;;;;;;;;;;;;;;;;; File name utilities ;;;;;;;;;;;;;;;;;;
+(bind-func String2ByteList:[List{i8}*,String*]*
+  (lambda (str)
+    (let* ((n (String_length str))
+           (cstr (String_cstr str))
+           (loop
+            (lambda (i output); ((i n) (output '()))
+              (cond
+               ((< i 0) output)
+               (else (loop (- i 1) (cons (pref cstr i) output)))))))
+      (loop (- n 1) '()))))
+
+
+(bind-func ByteList2String:[String*,List{i8}*]*
+  (lambda (lst)
+    (let* ((n (length lst))
+           (buf:i8* (zalloc (+ n 1)))
+           (loop:[void,List{i8}*,i64]*
+             (lambda (input i)
+               (cond
+                ((null? input) (pset! buf i 0) void)
+                (else
+                 (pset! buf  i (car input)) (loop (cdr input) (+ i 1)) void)))))
+      (loop lst 0)
+      (String buf))))
+
+
+(bind-func String_flatten:[String*,List{String*}*]*
+  (lambda (lst)
+    (let ((mapper:[List{i8}*,String*]*
+           (lambda (str) (String2ByteList str))))
+      (ByteList2String (flatten (map mapper lst))))))
+
+
+(bind-func yfs_join:[String*,String*,List{String*}*]*
+  (lambda (delimiter:String* components:List{String*}*)
+    (let ((n:i64 (length components)) (i:i64 0))
+      (dotimes (i (- n 1))
+        (insert components (+ (* i 2) 1) delimiter))
+      (String_flatten components))))
+
+
+(bind-func yfs_split:[List{String*}*,i8*]*
+  (lambda (full_path)
+    (let ((r:i8* (zalloc)))
+      (pset! r 0 fs)
+      (cdr (regex_split r (String full_path))))))
+    
+(bind-func yfs_name:[i8*,i8*]*
+  (lambda (full_path)
+    (String_cstr (car (last (yfs_split full_path))))))
+    
+
+($ (cdr (reverse (cdr (yfs_split "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))))
+
+(bind-func yfs_base:[i8*,i8*]*
+  (lambda (full_path)
+    (String_cstr (yfs_join slash (reverse (cdr (reverse (yfs_split full_path))))))))
+
+
+($ (printf "%s" (yfs_base "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))
+($ (print (yfs_split "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))
 
 
 (bind-func yfs_file_length:[i64,i8*]*
@@ -50,7 +131,6 @@
       (apr_file_seek handle APR_CUR playhead_ref)
       (@ playhead_ref))))
 
-  
 
 (bind-func yfs_file_rewind:[apr_off_t,apr_file_t*]*
   (let ((playhead_ref:apr_off_t* (zalloc)))

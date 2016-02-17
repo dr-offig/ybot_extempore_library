@@ -1,0 +1,409 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-audio-stream-loaded*) *xtmlib-ybot-audio-stream-loaded*)
+    (sys:load-escape "ybot_audio_stream library already loaded"))
+(define *xtmlib-ybot-audio-stream-loaded* #f)
+
+(sys:load "user_config.xtm")
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;;(sys:load (string-append *ybot-lib-dir* "/samplerate.xtm"))
+
+;; Dependencies
+(sys:load "libs/aot-cache/audio_dsp.xtm")
+(sys:load "libs/aot-cache/sndfile.xtm")
+(sys:load "libs/core/xthread.xtm")
+
+(bind-macro (@ . args)
+            `(pref ,(car args) 0))
+
+(bind-val SEEK_SET i32 0)
+(bind-val SEEK_CUR i32 1)
+(bind-val SEEK_END i32 2)
+
+(bind-alias audiofile_t i8*)
+(bind-alias mutex_t i8*)
+
+;; Returns: frames loaded.  Inputs: destination pointer to load into, offset to start from, number of frames to load, destination channels
+(bind-alias YbotRTRAMediaSource_t [i64,SAMPLE**,i64,i64,i64]*)
+
+
+;;;;;;;;;;;;;;;;;;;;;;
+;; YbotRTRAFrameBuffer type ;;
+;;;;;;;;;;;;;;;;;;;;;;
+;; 0 SAMPLE* (data)
+;; 1 number of frames in buffer
+;; 2 channels
+;; 3 framerate of the underlying media (as intended when recorded)
+;; 4 which frame of the underlying MediaSource corresponds to the start of the buffer
+;; 5 current playhead frame (relative to start of buffer)
+;; 6 current writehead frame (relative to the start of buffer)
+;; 7 the MediaSource from which it is drawn
+;; 8 an integer ID
+;; 9 A Mutex for thread synchronisation
+;; 10 status flag
+(bind-type YbotRTRAFrameBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,YbotRTRAMediaSource_t,i64,mutex_t*,bool>)
+(bind-alias YMFB YbotRTRAFrameBuffer)
+(bind-val YMFB_before i64 -1)
+(bind-val YMFB_well_inside i64 0)
+(bind-val YMFB_near_end i64 1)
+(bind-val YMFB_past i64 2)
+(bind-val YMFB_will_not_fit i64 3)
+(bind-val YMFB_busy i64 -2)
+
+
+(bind-func YbotRTRAFrameBuffer_c:[YMFB*,i64,i64,SAMPLE,YbotRTRAMediaSource_t,i64]*
+  (lambda (frames channels samplerate source id)
+    (let ((output:YMFB* (zalloc))
+          (mutex_ptr:mutex_t* (zalloc))
+          (data:SAMPLE* (zalloc (* frames channels))))
+      (pset! mutex_ptr 0 (mutex_create))
+      (tset! output 0 data)
+      (tset! output 1 frames)
+      (tset! output 2 channels)
+      (tset! output 3 samplerate)
+      (tset! output 4 0)
+      (tset! output 5 0)
+      (tset! output 6 0)
+      (tset! output 7 source)
+      (tset! output 8 id)
+      (tset! output 9 mutex_ptr)
+      (tset! output 10 #t)
+      output)))
+
+
+(bind-func YbotRTRAFrameBuffer_d:[void,YMFB*]*
+  (lambda (buffer)
+    (mutex_destroy (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YMFB_lock:[void,YMFB*]*
+  (lambda (buffer)
+    (mutex_lock (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YMFB_unlock:[void,YMFB*]*
+  (lambda (buffer)
+    (mutex_unlock (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YMFB_trylock:[bool,YMFB*]*
+  (lambda (buffer)
+    (= 0 (i32toi64 (mutex_trylock (pref (tref buffer 9) 0))))))
+
+(bind-func YMFB_load_from_offset:[i64,YMFB*,i64]*
+  (lambda (buffer start_frame)
+    (printf "Loading into buffer %p at frame %lld\n" buffer start_frame) 
+    (YMFB_lock buffer)
+    (let*
+        ((data (tref buffer 0))
+         (pData:SAMPLE** (zalloc))
+         (frames (tref buffer 1))
+         (channels (tref buffer 2))
+         (loader (tref buffer 7)))
+      (pset! pData 0 data)
+      (let ((frames_read (loader pData start_frame frames channels)))
+        (tset! buffer 4 start_frame)
+        (tset! buffer 5 start_frame)
+        (tset! buffer 10 #t)
+        (YMFB_unlock buffer)
+        frames_read))))
+
+(bind-func YMFB_ready:[bool,YMFB*]*
+  (lambda (buffer)
+    (if (YMFB_trylock buffer)
+        (let ((output (tref buffer 10)))
+          (YMFB_unlock buffer)
+          output)
+        #f)))
+
+(bind-func YMFB_copy_frames:[void,YMFB*,i64,i64,bool*,i64,SAMPLE**]*
+  (lambda (buffer frame windowSize success destChannels destination)
+    ;(printf "Copy Frames from buffer:%p starting at frame %lld for length %lld to destination %p with %lld channels and error ptr %p\n"
+    ;        buffer frame windowSize destination destChannels success)
+    (if (YMFB_trylock buffer)
+        (let*
+            ((data (tref buffer 0))
+             (frames (tref buffer 1))
+             (channels (tref buffer 2))
+             (copyChannels:i64 (if (< channels destChannels) channels destChannels))
+             (start_frame (tref buffer 4))
+             (start_offset (- frame start_frame))
+             (end_offset (+ start_offset windowSize))
+             (t:i64 0) (c:i64 0))
+          (if (and (<= 0 start_offset) (< end_offset frames))
+              (begin
+                (dotimes (t windowSize)
+                  (dotimes (c destChannels)
+                    (if (< c copyChannels)
+                        (pset! (@ destination) (+ c (* t destChannels)) (pref data (+ c (* t channels))))
+                        (pset! (@ destination) (+ c (* t destChannels)) (convert 0.0)))))
+                (pset! success 0 #t)
+                (YMFB_unlock buffer)
+                void)
+              (begin
+                (dotimes (t windowSize)
+                  (dotimes (c destChannels)
+                    (pset! (@ destination) (+ c (* t destChannels)) (convert 0.0))))
+                (pset! success 0 #f)
+                (YMFB_unlock buffer)
+                void)))
+        (let ((t:i64 0) (c:i64 0))
+          (dotimes (t windowSize)
+            (dotimes (c destChannels)
+              (pset! (@ destination) (+ c (* t destChannels)) (convert 0.0))))
+          (pset! success 0 #f)
+          void))))
+
+
+(bind-func YMFB_contains:[i64,YMFB*,i64,i64]*
+  (lambda (buffer windowStartFrame windowSize) ;; -1 = before buffer, 0 = well inside buffer, 1 = near end of buffer, 2 = past buffer, 3 = bigger than buffer
+    (if (YMFB_trylock buffer)
+        (let*
+            ((start_frame:i64 (tref buffer 4))
+             (bufferSize:i64 (tref buffer 1))
+             (end_frame:i64 (+ start_frame bufferSize))
+             (windowEndFrame:i64 (+ windowStartFrame windowSize))
+             (output:i64 0))
+          (cond
+           ((< (/ bufferSize 2) windowSize) (set! output YMFB_will_not_fit))
+           ((< windowEndFrame start_frame) (set! output YMFB_before))
+           ((and (>= windowStartFrame start_frame) (< windowEndFrame (+ start_frame (/ bufferSize 2)))) (set! output YMFB_well_inside))
+           ((< windowEndFrame end_frame) (set! output YMFB_near_end))
+           (else (set! output YMFB_past)))
+          (YMFB_unlock buffer)
+          output)
+        YMFB_busy)))
+
+
+;;(bind-alias YbotAudioFileReader_t [SAMPLE,i64,i64]*)
+
+;;(bind-func silent_reader:YbotAudioFileReader_t
+;;  (lambda (frame channel)
+;;    (convert 0.0)))
+
+(bind-func YbotAudioFileSource_c:[YbotRTRAMediaSource_t,i8*]*
+  (lambda (filename)
+    (let* ((info:SF_INFO* (halloc))
+           (audiofile:audiofile_t (sf_open filename SFM_READ info))
+           (currentReadFrame:i64 0))
+      (lambda (destination:SAMPLE** windowStartFrame:i64 windowSize:i64 destChannels:i64)
+        (set! currentReadFrame (sf_seek audiofile (- windowStartFrame currentReadFrame) SEEK_CUR))
+        (let ((frames_read:i64 (sf_readf audiofile (@ destination) windowSize)))
+          frames_read)))))
+
+
+(bind-func YbotAudioFileSource_d:[void,YbotRTRAMediaSource_t]*
+  (lambda (source)
+    (sf_close (source.audiofile:audiofile_t))
+    (free (source.info:SF_INFO*))
+    void))
+
+
+(bind-func YbotAudioFileReader_c:[YbotRTRAMediaSource_t,i8*,i64]*
+  (lambda (filename read_buffer_width)
+    (let*
+        ((playing_buffer:i64 1)
+         (buffering:bool #f)
+         (filesource1:YbotRTRAMediaSource_t (YbotAudioFileSource_c filename))
+         (filesource2:YbotRTRAMediaSource_t (YbotAudioFileSource_c filename)))
+      (let ((frames (sf_frames (filesource1.info:SF_INFO*)))
+            (channels (i32toi64 (sf_channels (filesource1.info:SF_INFO*))))
+            (samplerate (i32tof (sf_samplerate (filesource1.info:SF_INFO*)))))
+        (if (= read_buffer_width 0)
+            (set! read_buffer_width frames) 0)
+        (if (<> samplerate (convert SAMPLERATE))
+            (println "File samplerate" samplerate
+                     "doesn't match the current audio samplerate" SR ". Make sure there is a sample rate converter in the signal chain") void)
+        (if (> read_buffer_width frames)
+            (set! read_buffer_width frames) 0)
+        ;; initialise and allocate memory for the Audio Buffers
+        (let*
+            ((frames_read:i64 0) ;(current_file_read_frame 0)
+             (buffer1:YMFB* (YbotRTRAFrameBuffer_c read_buffer_width channels (convert samplerate) filesource1 1))
+             (buffer2:YMFB* (YbotRTRAFrameBuffer_c read_buffer_width channels (convert samplerate) filesource2 2)))
+          ;; read the audio data from the file into buffer1
+          (println "About to read into buffer1")
+          (set! frames_read (YMFB_load_from_offset buffer1 0))
+          (println "Read in " frames_read " frames")
+          (lambda (destination windowStartFrame windowSize destChannels)
+            (let*
+                ((f:i64 (modulo windowStartFrame frames))
+                 (playbuf:YMFB* (if (= playing_buffer 1) buffer1 buffer2))
+                 (idlebuf:YMFB* (if (= playing_buffer 1) buffer2 buffer1))
+                 (p:i64 (YMFB_contains playbuf f windowSize))
+                 (success:bool* (salloc))) ;;(value:SAMPLE* (salloc)))
+              (cond
+               ((= p YMFB_near_end) (printf "Near End of buffer at frame %lld\t\n" f)   
+                (cond
+                 ((and (not buffering) (YMFB_ready playbuf) (YMFB_ready idlebuf)) ;; time to load some more data into the idle buffer
+                  (set! buffering #t)
+                  ;(printf "Ready to load into %p\n" f idlebuf)
+                  ;(spawn (let ((new_start_frame:i64 (+ (/ read_buffer_width 2) (tref playbuf 4))))
+                  ;         (println "New Start Frame is " new_start_frame)
+                  ;         (lambda ()
+                  ;           (println "Squiddlypop")
+                  ;           (YMFB_load_from_offset idlebuf new_start_frame)
+                                        ;           void)))
+                                        ;(spawn (lambda () (+ 1 2) void))
+                  (let ((new_start_frame:i64 (+ (/ read_buffer_width 2) (tref playbuf 4))))
+                    (YMFB_load_from_offset idlebuf new_start_frame))
+                  void)
+                 (else (println "Waiting ...")
+                       void)))
+               ((or (= p YMFB_past) (= p YMFB_before))  (println "past or before " p)
+                (if (YMFB_ready idlebuf) (set! buffering #f) #f)
+                (let ((q (YMFB_contains idlebuf f windowSize)))
+                  (cond
+                   ((= q 0)
+                    (if (= playing_buffer 1)
+                        (begin
+                          (set! playing_buffer 2)
+                          (set! playbuf buffer2)
+                          (set! idlebuf buffer1)
+                          void)
+                        (begin
+                          (set! playing_buffer 1)
+                          (set! playbuf buffer1)
+                          (set! idlebuf buffer2)
+                          void)))
+                   (else void))))
+               ((= p YMFB_well_inside) ;; All is well :)
+                void) 
+               (else ;; Something weird is happening - generate noise so we can notice it
+                ;;(pset! value 0 (convert (* 0.1 (random))))
+                (println "Something weird is happening")
+                void
+                ))
+              (YMFB_copy_frames playbuf f windowSize success destChannels destination)
+              (let ((res (pref success 0)))
+                (if (not res) (printf "Copy Failed\n"))
+                ))
+            windowSize))))))
+
+
+
+(bind-func YbotAudioFileReader_d:[i32,YbotRTRAMediaSource_t]*
+  (lambda (yafr)
+    (let*
+        ((buffer1:YMFB* (yafr.buffer1))
+         (buffer2:YMFB* (yafr.buffer2)))
+      (YbotRTRAFrameBuffer_d buffer2)
+      (YbotRTRAFrameBuffer_d buffer1)
+      0)))
+
+
+(bind-alias YbotAudioSampleFetcher_t [SAMPLE,i64,i64]*)
+
+(bind-func YbotAudioFilePlayer_c:[YbotAudioSampleFetcher_t,YbotRTRAMediaSource_t]*
+  (lambda (reader)
+    (let* (
+           (framesInFile:i64 (reader.frames:i64))
+           (channelsInFile:i64 (reader.channels:i64))
+           (windowStartFrame:i64 0)
+           (windowSize:i64 128)
+           (window:SAMPLE* (zalloc (* windowSize channelsInFile)))
+           (pWindow:SAMPLE** (zalloc)))
+      (pset! pWindow 0 window)
+      (reader pWindow 0 windowSize channelsInFile)
+      (lambda (frame:i64 channel:i64)
+        (let* ((offset:i64 (- frame windowStartFrame)))
+          (if (and (<= 0 offset) (< offset windowSize))
+              (begin
+                (pref window (+ (* offset channelsInFile) channel)))
+              (begin
+                (printf "\n\n------------------\n")
+                (println "Reading new window into player at file offset " frame)
+                (let ((w:i64 (reader pWindow frame windowSize channelsInFile)))
+                  (printf "Finished Reading in %lld frames into window %p\n" w window))
+                (set! windowStartFrame frame)
+                (printf "windowStartFrame now %lld\n" windowStartFrame)
+                (pref window channel))))))))
+
+
+
+;;;;;; Example usage ;;;;;;
+;; (bind-func dsp:DSP
+;;   (let* ((playhead:i64 -1)
+;;          (playing:i64 1)
+;;          (master_gain:float 1.0)
+;;          ;(player (YbotAudioFilePlayer_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav"))
+;;          (reader:YbotRTRAMediaSource_t (YbotAudioFileReader_c "/Users/s2805534/Documents/audio/snippets/noise.wav" 1024))
+;;          (player (YbotAudioFilePlayer_c reader))
+;;          (val:float 0.0))
+;;     (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+;;       (if (< 0 playing)
+;;           (begin
+;;             (cond
+;;              ((= channel 0)
+;;               (set! playhead (+ playhead 1))
+;;               (cond
+;;                ((> playhead (player.framesInFile:i64))
+;;                 (println "Looping")
+;;                 (set! playhead 0)))))
+;;             (set! val (player playhead channel)))
+;;           (set! val (dtof 0.0)))
+;;       ;(printf "frame %lld: \tchan: %lld\t val: %f\n" playhead channel (ftod val))
+;;       (* master_gain val))))
+
+
+
+(bind-func dsp:DSP
+  (let* ((playhead:i64 -1)
+         (playing:i64 1)
+         (master_gain:float 1.0)
+         ;(player (YbotAudioFilePlayer_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav"))
+         (reader:YbotRTRAMediaSource_t (YbotAudioFileReader_c "/Users/s2805534/Documents/audio/snippets/noise.wav" (* 1024 1000)))
+         (framesInFile:i64 (reader.frames:i64))
+         (val:float 0.0)
+         (start_time:i64 (now))
+         (windowSize:i64 128)
+         (channels:i64 2)
+         (window:SAMPLE* (halloc (* channels windowSize)))
+         (pWindow:SAMPLE** (halloc)))
+    (pset! pWindow 0 window)
+    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+      (let* ((delta:i64 (- time start_time))
+             (cc:i64 (modulo delta windowSize)))
+        (cond
+         ((= channel 0)
+          (set! playhead (+ playhead 1))
+          (if (>= playhead framesInFile) (set! playhead 0))
+          (cond
+           ((= cc 0)
+            (reader pWindow playhead windowSize channels)))))
+        (set! val (pref window (+ channel (* cc channels))))
+        (* master_gain val)))))
+
+;;(bind-func dsp:DSP
+;;  (lambda (in time channel data)
+;;    (convert 0.0)))
+
+(dsp:set! dsp)
+;;(dsp.master_gain 0.5)
+(dsp.playhead 10000)
+;;(dsp.playing 1)
+
+(bind-func printAudioBuffer:[void,SAMPLE*,i64,i64]*
+  (lambda (buffer frames channels)
+    (let ((t:i64 0) (c:i64 0))
+      (printf "\n\n")
+      (dotimes (t frames)
+        (printf "|")
+        (dotimes (c channels)
+          (printf " %f " (ftod (pref buffer (+ (* t channels) c)))))
+        (printf "|\n"))
+      void)))
+
+
+
+(bind-func report-state
+  (lambda ()
+    (printf "Window located at: %p\tframes: %lld\tchannels: %lld\n" (dsp.player.window:SAMPLE*) (dsp.player.windowSize:i64) (dsp.player.channelsInFile:i64))
+    (printAudioBuffer (dsp.player.window:SAMPLE*) (dsp.player.windowSize:i64) (dsp.player.channelsInFile:i64))
+    void))
+
+(report-state)
+
+($ ((dsp.player:YbotAudioSampleFetcher_t) 10000 0))
+
+(set! *xtmlib-ybot-audio-stream-loaded* #t)

@@ -4,36 +4,60 @@
 (define *xtmlib-ybot-sounddb-loaded* #f)
 
 ;; Dependencies
-;(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
 (if (not (defined? '*ybot-lib-dir*))
     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
 (sys:load (string-append *ybot-lib-dir* "/ybot_audio_file_reader.xtm"))         
 
 ;; Time
 
-(define libSystem (sys:load-dylib "libSystem.dylib"))
-(bind-lib-type libSystem tm <i64,i64,i64,i64,i64,i64,i64,i64,i64,i64,i8*>)
+(bind-dylib libSystem
+  (cond ((string=? (sys:platform) "OSX") "libSystem.dylib")
+        ((string=? (sys:platform) "Linux") "libc.so")
+        ((string=? (sys:platform) "Windows") "MSVCRT.dll")))
+
+;; seconds, minutes, hours, day-of-month (1-indexed), months since Jan, years since 1900, day-of-week, day-of-year, is-daylight-savings, timezone-offset, timezone-name
+(bind-type tm <i32,i32,i32,i32,i32,i32,i32,i32,i32,i32,i8*>)
 ;(bind-alias time_t i64)
-(bind-lib-func libSystem time [i64,i64*]* 8192)
-(bind-lib-func libSystem localtime [tm*,i64*]* 8192)
-(bind-lib-func libSystem mktime [i64,tm*]* 8192)
-(bind-lib-func libSystem ctime [i8*,i64*]* 8192)
+(bind-lib libSystem time [i64,i64*]*)
+(bind-lib libSystem localtime [tm*,i64*]*)
+(bind-lib libSystem mktime [i64,tm*]*)
+(bind-lib libSystem ctime [i8*,i64*]*)
 
 
 
-(bind-func test-time:[void]*
-  (lambda ()
-    (let ((pt:i64* (salloc)))
-      (pset! pt 0 0)
-      (print (Str (ctime pt)))))) 
 
 
-(bind-func test-time:[void]*
-  (lambda ()
-    (let ((monday:tm* (salloc)))
-      (tset! tm ))))
-      
-(test-time)
+
+;; (bind-func test-time
+;;   (lambda ()
+;;     (time (convert 0))))
+
+
+;; (bind-func test-time2:[void]*
+;;   (lambda ()
+;;     (let ((pt:i64* (zalloc)))
+;;       (time pt)
+;;       (printf "%s" (ctime pt))
+;;       (let ((ct:tm* (localtime pt)))
+;;         (print ct)
+;;         void))))
+
+
+;; (bind-func test-time5:[i64]*
+;;   (lambda ()
+;;     (let ((yesterday:tm* (tm 0 30 8 2 1 116 1 0 1 10 "Australian Eastern Standard Time")))
+;;       (mktime yesterday))))
+
+
+;; Filename manipulation for temporal media
+;(bind-func ysdb_next:[String*,String*]
+;  (lambda (orig:String)))
+
+;;; Regex for {original_filename_base}_{yyyyMMdd-HHmmss+ZZ}.{original_filename_extension}
+;;/^(.*)(\d{4})(\d{2})(\d{2})(-|_|T)?(\d{2})(\d{2})(\d{2})([+\-]\d{4}|[+\-]\d{1,2}:\d{2}|[+\-]\d{1,2}|Z)?(.*)\.([a-zA-Z0-9]+)$/
+
+
   
 
 
@@ -50,7 +74,7 @@
 ;; 7  timezone (including daylight savings, as GMT +{timezone} hours)
 
 (bind-type GPS_coordinates <float,float>)
-(bind-type YbotBioFieldRecording <i64,i8*,i8*,i8*,GPS_coordinates*,
+(bind-type YbotBioFieldRecording <i64,i8*,i8*,i8*,GPS_coordinates*>
 
 
 

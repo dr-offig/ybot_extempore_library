@@ -1,0 +1,69 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-audio-file-player-loaded*) *xtmlib-ybot-audio-file-player-loaded*)
+    (sys:load-escape "ybot_audio_file_player library already loaded"))
+(define *xtmlib-ybot-audio-file-player-loaded* #f)
+
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_audio_file_reader.xtm"))
+(sys:load (string-append *ybot-lib-dir* "/samplerate.xtm"))
+
+;; Other Dependencies
+;; returns the audio SAMPLE, inputs are desired frame, desired channel, and desired samplerate
+(bind-alias YbotAudioFilePlayer_t [SAMPLE,i64,i64,SAMPLE]*)
+(bind-val YAFP_READBUF_WIDTH i64 10000000)
+(bind-val YAFP_SRCBUF_SIZE i64 FRAMES)
+
+(bind-func YbotAudioFilePlayer_c:[YbotAudioFilePlayer_t,i8*]*
+  (lambda (filename)
+    (let 
+        ((play_sr:SAMPLE SAMPLERATE)
+         (reader:YbotAudioFileReader_t (YbotAudioFileReader_c filename 1000000))
+         (pError:i32* (zalloc))
+         (inputSampleRate:SAMPLE (reader.samplerate:SAMPLE))
+         (inputFrames:i64 (reader.frames:i64))
+         (inputChannels:i64 (reader.channels:i64))
+         (inputBuffer:float* (zalloc YAFP_SRCBUF_SIZE))
+         (converter_src_callback:src_callback_t
+          (lambda (pUserData:i8* pBuffer:float**)
+            (let* ((pTransport:i64* (cast pUserData i64*))
+                   (inputFrame:i64 (pref pTransport 0))
+                   (inputChannel:i64 (pref pTransport 1))
+                   (cc:i64 0))
+              (dotimes (cc (* inputFrames inputChannels))
+                (pset! inputBuffer cc (reader inputFrame inputChannel)))
+              (pset! pBuffer 0 inputBuffer)
+              (* inputFrames inputChannels))))
+         (src:SRC_STATE* (src_callback_new converter_src_callback SRC_SINC_BEST_QUALITY (i64toi32 inputChannels) pError null)))
+      (lambda (frame:i64 channel:i64 rate:SAMPLE)
+        (let ((pOutput:SAMPLE* (zalloc 1)))
+          (src_callback_read src (/ (ftod rate) (ftod inputSampleRate)) 1 pOutput)
+          (pref pOutput channel))))))
+
+
+
+;;;;; Example usage ;;;;;;
+(bind-func dsp:DSP
+ (let* ((playhead:i64 0)
+        (playing:i64 1)
+        (master_gain:float 0.2)
+        (player (YbotAudioFilePlayer_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav"))
+        (val:float 0.0))
+   (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+     (if (< 0 playing)
+         (set! val (player playhead channel SAMPLERATE))
+         (set! val (dtof 0.0)))
+     (cond ((= channel 0)
+            (set! playhead (+ playhead 1))
+            (cond ((> playhead (player.reader.frames:i64))
+                   (println "Looping")
+                   (set! playhead 0)))))
+     (* master_gain val))))
+
+
+(dsp:set! dsp)
+(dsp.master_gain 0.5)
+;; (dsp.playhead 0)
+(dsp.playing 1)
+
+  
