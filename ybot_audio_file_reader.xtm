@@ -35,7 +35,7 @@
 ;; 9 A Mutex for thread synchronisation
 ;; 10 status flag
 (bind-type YbotAudioFileBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,audiofile_t,i64,mutex_t*,bool>)
-(bind-alias YAFB YbotAudioFileBuffer)
+;(bind-alias YAFB YbotAudioFileBuffer)
 (bind-val YAFB_before i64 -1)
 (bind-val YAFB_well_inside i64 0)
 (bind-val YAFB_near_end i64 1)
@@ -45,7 +45,7 @@
 
 (bind-func YbotAudioFileBuffer_c:[YbotAudioFileBuffer*,i64,i64,SAMPLE,audiofile_t,i64]*
   (lambda (frames channels samplerate audiofile id)
-    (let ((output:YAFB* (zalloc))
+    (let ((output:YbotAudioFileBuffer* (zalloc))
           (mutex_ptr:mutex_t* (zalloc))
           (data:SAMPLE* (zalloc (* frames channels))))
       (pset! mutex_ptr 0 (mutex_create))
@@ -63,58 +63,30 @@
       output)))
 
 
-;; (bind-func YbotAudioFileBuffer_c:[YbotAudioFileBuffer*,i64,i64,SAMPLE,audiofile_t,i64]*
-;;   (lambda (frames channels samplerate audiofile id)
-;;     (let* ((output:YAFB* (zalloc))
-;;           (mutex_ptr:mutex_t* (zalloc))
-;;           (data:SAMPLE* (zalloc (* frames channels)))
-;;           (pError:i32* (zalloc))
-;;           (converter_src_callback:src_callback_t
-;;            (let* ((inputSampleRate:SAMPLE samplerate)
-;;                   (inputFrames:i64 frames)
-;;                   (inputBuffer:float* (zalloc (* inputFrames channels)))) 
-;;              (lambda (pUserData:i8* pBuffer:float**)
-;;                (pset! pBuffer 0 inputBuffer)
-;;                (* inputFrames channels))))
-;;           (src:SRC_STATE* (src_callback_new converter_src_callback SRC_SINC_BEST_QUALITY (i64toi32 channels) pError null)))
-;;       (pset! mutex_ptr 0 (mutex_create))
-;;       (tset! output 0 data)
-;;       (tset! output 1 frames)
-;;       (tset! output 2 channels)
-;;       (tset! output 3 samplerate)
-;;       (tset! output 4 0)
-;;       (tset! output 5 0)
-;;       (tset! output 6 0)
-;;       (tset! output 7 audiofile)
-;;       (tset! output 8 id)
-;;       (tset! output 9 mutex_ptr)
-;;       (tset! output 10 #t)
-;;       (tset! output 11 src)
-;;       output)))
-
-
-(bind-func YbotAudioFileBuffer_d:[void,YAFB*]*
+(bind-func YbotAudioFileBuffer_d:[void,YbotAudioFileBuffer*]*
   (lambda (buffer)
     (mutex_destroy (pref (tref buffer 9) 0))
     void))
 
-(bind-func YAFB_lock:[void,YAFB*]*
+(bind-func YAFB_lock:[void,YbotAudioFileBuffer*]*
   (lambda (buffer)
     (mutex_lock (pref (tref buffer 9) 0))
     void))
 
-(bind-func YAFB_unlock:[void,YAFB*]*
+(bind-func YAFB_unlock:[void,YbotAudioFileBuffer*]*
   (lambda (buffer)
     (mutex_unlock (pref (tref buffer 9) 0))
     void))
 
-(bind-func YAFB_trylock:[bool,YAFB*]*
+(bind-func YAFB_trylock:[bool,YbotAudioFileBuffer*]*
   (lambda (buffer)
     (= 0 (i32toi64 (mutex_trylock (pref (tref buffer 9) 0))))))
 
 (bind-func YAFB_load_from_file_offset:[i64,YbotAudioFileBuffer*,i64]*
   (lambda (buffer start_frame)
+    (println "\n\nStarting to load from offset: " start_frame)
     (YAFB_lock buffer)
+    ;(tset! buffer 10 #f)
     (let*
         ((data (tref buffer 0))
          (frames (tref buffer 1))
@@ -123,17 +95,15 @@
       (let ((frames_read (sf_readf audiofile data frames)))
         (tset! buffer 4 start_frame)
         (tset! buffer 5 start_frame)
-        (tset! buffer 10 #t)
+        ;(tset! buffer 10 #t)
         (YAFB_unlock buffer)
+        (println "Finished loading in " frames_read " frames")
         frames_read))))
 
 (bind-func YAFB_ready:[bool,YbotAudioFileBuffer*]*
   (lambda (buffer)
-    (if (YAFB_trylock buffer)
-        (let ((output (tref buffer 10)))
-          (YAFB_unlock buffer)
-          output)
-        #f)))
+    (if (YAFB_trylock buffer) (begin (YAFB_unlock buffer) #t) (begin (println "Buffer is not ready\n") #f))))
+
         
 (bind-func YAFB_fetch_sample:[void,YbotAudioFileBuffer*,i64,i64,bool*,SAMPLE*]*
   (lambda (buffer frame channel success output)
@@ -209,8 +179,8 @@
             ;; initialise and allocate memory for the AudioBuffer
             (let*
                 ((frames_read 0) (current_file_read_frame 0)
-                 (buffer1:YAFB* (YbotAudioFileBuffer_c frames channels (convert samplerate) audiofile 1))
-                 (buffer2:YAFB* (YbotAudioFileBuffer_c frames channels (convert samplerate) audiofile 2)))
+                 (buffer1:YbotAudioFileBuffer* (YbotAudioFileBuffer_c read_buffer_width channels (convert samplerate) audiofile 1))
+                 (buffer2:YbotAudioFileBuffer* (YbotAudioFileBuffer_c read_buffer_width channels (convert samplerate) audiofile 2)))
               ;; read the audio data from the file into buffer1
               (println "About to read into buffer1")
               (set! frames_read (YAFB_load_from_file_offset buffer1 0))
@@ -224,38 +194,39 @@
                      (p (YAFB_contains playbuf f))
                      (success:bool* (salloc))
                      (value:SAMPLE* (salloc)))
-                  (cond
-                   ((= p YAFB_near_end)
-                    (cond
-                     ((and (not buffering) (YAFB_ready playbuf) (YAFB_ready idlebuf)) ;; time to load some more data into the idle buffer
-                      (spawn (let ((new_start_frame (+ read_buffer_width (tref playbuf 1))))
-                               (lambda () (YAFB_load_from_file_offset  idlebuf new_start_frame) void)))
-                      (set! buffering #t)
-                      void)
-                     (else void)))
-                   ((or (= p YAFB_past) (= p YAFB_before))
-                    (if (YAFB_ready idlebuf) (set! buffering #f) #f)
-                    (let ((q (YAFB_contains idlebuf f)))
+                  (if (= channel 0)
                       (cond
-                       ((= q 0)
-                        (if (= playing_buffer 1)
-                            (begin
-                              (set! playing_buffer 2)
-                              (set! playbuf buffer2)
-                              (set! idlebuf buffer1)
-                              void)
-                            (begin
-                              (set! playing_buffer 1)
-                              (set! playbuf buffer1)
-                              (set! idlebuf buffer2)
-                              void)))
-                       (else void))))
-                   ((= p YAFB_well_inside) ;; All is well :)
-                    void) 
-                   (else ;; Something weird is happening - generate noise so we can notice it
-                    (pset! value 0 (convert (* 0.1 (random))))
-                    void
-                    ))
+                       ((= p YAFB_near_end)
+                        (cond
+                         ((and (not buffering) (YAFB_ready playbuf) (YAFB_ready idlebuf)) ;; time to load some more data into the idle buffer
+                          (set! buffering #t)
+                          (spawn (let ((new_start_frame (+ read_buffer_width (tref playbuf 1))))
+                                   (lambda () (YAFB_load_from_file_offset  idlebuf new_start_frame) void)))
+                          void)
+                         (else void)))
+                       ((or (= p YAFB_past) (= p YAFB_before))
+                        (if (YAFB_ready idlebuf) (set! buffering #f) #f)
+                        (let ((q (YAFB_contains idlebuf f)))
+                          (cond
+                           ((= q 0)
+                            (if (= playing_buffer 1)
+                                (begin
+                                  (set! playing_buffer 2)
+                                  (set! playbuf buffer2)
+                                  (set! idlebuf buffer1)
+                                  void)
+                                (begin
+                                  (set! playing_buffer 1)
+                                  (set! playbuf buffer1)
+                                  (set! idlebuf buffer2)
+                                  void)))
+                           (else (println "Something is wrong") void))))
+                       ((= p YAFB_well_inside) ;; All is well :)
+                        void) 
+                       (else ;; Something weird is happening - generate noise so we can notice it
+                        (pset! value 0 (convert (* 0.1 (random))))
+                        void
+                        )))
                   (YAFB_fetch_sample playbuf f c success value)
                   (pref value 0)))))))))
 
@@ -264,8 +235,8 @@
   (lambda (yafr)
     (let*
         ((af:i8* (yafr.audiofile))
-         (buffer1:YAFB* (yafr.buffer1))
-         (buffer2:YAFB* (yafr.buffer2)))
+         (buffer1:YbotAudioFileBuffer* (yafr.buffer1))
+         (buffer2:YbotAudioFileBuffer* (yafr.buffer2)))
       (YbotAudioFileBuffer_d buffer2)
       (YbotAudioFileBuffer_d buffer1)
       (sf_close af))))
@@ -274,10 +245,10 @@
 
 ;;;;; Example usage ;;;;;;
 (bind-func dsp:DSP
- (let* ((playhead:i64 0)
+ (let* ((playhead:i64 100000)
         (playing:i64 1)
         (master_gain:float 0.2)
-        (reader (YbotAudioFileReader_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav" (* 44100 10)))
+        (reader (YbotAudioFileReader_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav" (* 44100 3)))
         (val:float 0.0))
    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
      (if (< 0 playing)
@@ -289,6 +260,37 @@
                    (println "Looping")
                    (set! playhead 0)))))
      (* master_gain val))))
+
+
+;; (bind-func dsp:DSP
+;;   (lambda (in:SAMPLE time:i64 channel:i64 data:SAMPLE*)
+;;     (if (= 0 (modulo time 44100))
+;;         (spawn (lambda () (println "Spawning ...") void)))
+;;     (convert 0.0)))
+
+
+
+;; (bind-func dsp:DSPMC
+;;  (let* ((playhead:i64 0)
+;;         (playing:i64 1)
+;;         (master_gain:float 0.2)
+;;         (reader (YbotAudioFileReader_c "/Users/s2805534/Music/iTunes/iTunes\ Media/Music/Absolute\ Music/Absolute\ Disco\ Classics\ \[Disc\ 1\]/1-07\ Born\ To\ Be\ Alive.aiff" (* 44100 10))))
+;;    (lambda (in:float* out:float* time:i64 userData:i8*)
+;;      (let ((c:i64 0) (f:i64 0))
+;;        (cond
+;;         ((< 0 playing)
+;;          (dotimes (f FRAMES)
+;;            (dotimes (c CHANNELS)
+;;              (pset! out (+ c (* f CHANNELS)) (reader playhead c))))
+;;          (set! playhead (+ playhead FRAMES))
+;;          (cond
+;;           ((> playhead (reader.frames))
+;;            (println "Looping")
+;;            (set! playhead 0)
+;;            void)
+;;           (else void)))
+;;         (else void))))))
+
 
 
 (dsp:set! dsp)
