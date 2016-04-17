@@ -66,7 +66,7 @@
 ;; SRC_STATE* src_callback_new (src_callback_t func, int converter_type, int channels,
 ;; 				int *error, void* cb_data) ;
 (bind-lib libsamplerate src_callback_new [SRC_STATE*,src_callback_t,i32,i32,i32*,i8*]*)
-
+;(bind-lib libsamplerate src_callback_new [SRC_STATE*,i8*,i32,i32,i32*,i8*]*)
 
 ;; /*
 ;; **	Cleanup all internal allocations.
@@ -100,7 +100,7 @@
 ;; */
 
 ;; int src_simple (SRC_DATA *data, int converter_type, int channels) ;
-(bind-lib libsamplerate src_simple [SRC_DATA*,i32,i32]*)
+(bind-lib libsamplerate src_simple [i32,SRC_DATA*,i32,i32]*)
 
 ;; /*
 ;; ** This library contains a number of different sample rate converters,
@@ -125,7 +125,7 @@
 ;; */
 
 ;; int src_set_ratio (SRC_STATE *state, double new_ratio) ;
-(bind-lib libsamplerate src_set_ratio [SRC_STATE*,double]*)
+(bind-lib libsamplerate src_set_ratio [i32,SRC_STATE*,double]*)
 
 ;; /*
 ;; **	Get the current channel count.
@@ -133,7 +133,7 @@
 ;; */
 
 ;; int src_get_channels (SRC_STATE *state) ;
-(bind-lib libsamplerate src_get_channels [SRC_STATE*]*)
+(bind-lib libsamplerate src_get_channels [i32,SRC_STATE*]*)
 
 ;; /*
 ;; **	Reset the internal SRC state.
@@ -143,7 +143,7 @@
 ;; */
 
 ;; int src_reset (SRC_STATE *state) ;
-(bind-lib libsamplerate src_reset [SRC_STATE*]*)
+(bind-lib libsamplerate src_reset [i32,SRC_STATE*]*)
 
 ;; /*
 ;; ** Return TRUE if ratio is a valid conversion ratio, FALSE
@@ -179,7 +179,6 @@
 ;; 	SRC_ZERO_ORDER_HOLD			= 3,
 ;; 	SRC_LINEAR					= 4,
 ;; } ;
-;;(bind-val aiProcess_CalcTangentSpace enum #x1)
 (bind-val SRC_SINC_BEST_QUALITY enum #x0)
 (bind-val SRC_SINC_MEDIUM_QUALITY enum #x1)
 (bind-val SRC_SINC_FASTEST enum #x2)

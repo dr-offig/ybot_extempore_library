@@ -3,6 +3,7 @@
     (sys:load-escape "ybot_audio_file library already loaded"))
 (define *xtmlib-ybot-audio-file-loaded* #f)
 
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
 (if (not (defined? '*ybot-lib-dir*))
     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
 (sys:load (string-append *ybot-lib-dir* "/ybot_audio_stream.xtm"))
@@ -17,43 +18,123 @@
 (bind-alias audiofile_t i8*)
 
 
-(bind-func YbotAudioFileSource_c:[YbotAudioWindowSource_t,i8*]*
+(bind-func YbotAudioFileSource_c:[YbotAudioSource_t,i8*]*
   (lambda (fname)
     (let ((info:SF_INFO* (zalloc))
-          (audiofile:audiofile_t (sf_open fname SFM_READ info))
-          (start_time:i64 (now)))
+          (audiofile:audiofile_t (sf_open fname SFM_READ info)))
       (if (null? audiofile)
           (begin
             (println "soundfile error:" (sf_strerror audiofile))
             silent_source)
           ;; when sf_open has read the file without error
-          (let ((frames (sf_frames info))
-                (channels (i32toi64 (sf_channels info)))
-                (samplerate (i32tof (sf_samplerate info))))
-            (if (<> samplerate (convert SAMPLERATE))
-                (println "File samplerate" samplerate "doesn't match the current audio samplerate" SR ) void)
-            (let* ((frames_read 0)
-                   (current_read_frame 0))
-              (lambda (time:i64 size:i64 channels:i64 output:SAMPLE*)
-                (sf_seek audiofile (- time start_time)  SEEK_SET)
-                (set! frames_read (sf_readf audiofile output size))
+          (let ((frames_in_file:i64 (sf_frames info))
+                (channels:i64 (i32toi64 (sf_channels info)))
+                (samplerate:SAMPLE (convert (sf_samplerate info))))
+            (if (<> samplerate SAMPLERATE)
+                (println "File samplerate" samplerate "doesn't match the current audio samplerate" SAMPLERATE ) void)
+            (let* ((frames_read:i64 0)
+                   (current_read_frame:i64 0))
+              (sf_seek audiofile 0 SEEK_SET)
+              (lambda (startFrame:i64 frames:i64 channels:i64 output:SAMPLE*)
+                ;(println "Audio file source function called")
+                (sf_seek audiofile startFrame SEEK_SET)
+                ;(println "Before fetching " frames " frames from audiofile")
+                (set! frames_read (sf_readf audiofile output frames))
+                ;(println "After fetching " frames_read " frames from audiofile")
                 (set! current_read_frame (+ current_read_frame frames_read))
-                (= frames_read size))))))))
+                ;(println "After setting current_read_frame to " current_read_frame)
+                frames_read)))))))
 
 
-(bind-func YbotAudioFileStream_c:[YbotAudioWindowSource_t,i8*]* 40000000
+;; (bind-func YbotAudioFileSource_c:[YbotAudioSource_t,i8*]*
+;;   (lambda (fname)
+;;     (let ((info:SF_INFO* (zalloc))
+;;           (audiofile:audiofile_t (sf_open fname SFM_READ info)))
+;;       (if (null? audiofile)
+;;           (begin
+;;             (println "soundfile error:" (sf_strerror audiofile))
+;;             silent_source)
+;;           ;; when sf_open has read the file without error
+;;           (let ((frames_in_file:i64 (sf_frames info))
+;;                 (channels:i64 (i32toi64 (sf_channels info)))
+;;                 (samplerate:SAMPLE (convert (sf_samplerate info))))
+;;             (if (<> samplerate SAMPLERATE)
+;;                 (println "File samplerate" samplerate "doesn't match the current audio samplerate" SAMPLERATE ) void)
+;;             (sf_seek audiofile 0 SEEK_SET)
+;;             (lambda (startFrame:i64 frames:i64 channels:i64 output:SAMPLE*)
+;;               (sf_seek audiofile startFrame SEEK_SET)
+;;               (sf_readf audiofile output frames)))))))
+        
+
+;; (bind-func YbotAudioFileStream_c:[YbotAudioStream*,i8*]*
+;;   (lambda (path)
+;;     (let* ((filesource (YbotAudioFileSource_c path))
+;;            (file_channels:i64 (filesource.channels:i64))
+;;            (file_samplerate:SAMPLE (filesource.samplerate))
+;;            (bufferedStream:YbotAudioStream* (YbotAudioBufferedStream_c filesource 1000000 file_channels file_samplerate)))
+;;       (printf "%p " bufferedStream)
+;;       (print bufferedStream)
+;;       (if (<> file_samplerate SAMPLERATE)
+;;           (let ((convertedStream:YbotAudioStream* (YbotAudioConvertedStream_c bufferedStream SAMPLERATE)))
+;;             (println "\nConverted Stream: " convertedStream)
+;;             convertedStream)
+;;           bufferedStream))))
+
+
+(bind-func YbotAudioFileStream_c:[YbotAudioStream*,i8*]*
   (lambda (path)
-    (let ((filesource (YbotAudioFileSource_c path)))
-      (YbotAudioStream_c filesource 1000000 (filesource.channels:i64)))))
+    (let* ((filesource (YbotAudioFileSource_c path))
+           (file_channels:i64 (filesource.channels:i64))
+           (file_samplerate:SAMPLE (filesource.samplerate))
+           (converter_block_size:i64 32)
+           (converter_err:i32* (zalloc))
+           (conversion_buffer:SAMPLE* (zalloc (* converter_block_size file_channels))
+           (fileStream:YbotAudioStream* (YbotAudioStream filesource file_channels file_samplerate 0 converter_block_size converter_err conversion_buffer)))
+      (if (<> file_samplerate SAMPLERATE)
+          (let ((convertedStream:YbotAudioStream* (YbotAudioConvertedStream_c fileStream SAMPLERATE)))
+            (println "\nConverted Stream: " convertedStream)
+            convertedStream)
+          fileStream))))
 
 
-(bind-func hernandez (YbotAudioFileStream_c "/Users/s2805534/Music/iTunes/iTunes Media/Music/Absolute Music/Absolute Disco Classics [Disc 1]/1-07 Born To Be Alive.aiff"))
+
+;; (bind-func YbotAudioFileStream_d:[void,YbotAudioStream*]*
+;;   (lambda (filestream)
+;;     (let* ((filesource (filestream.filesource:YbotAudioSource_t))
+;;            (audiofile (filesource.audiofile:audiofile_t))
+;;            (converter_data (filestream.converter_data:YbotSRC_data*))
+;;            (converter_err (filestream.converter_err:i32*)))
+;;       (sf_close audiofile)
+;;        void)))
+          
+
+(bind-val hernandez6 YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Music/iTunes/iTunes Media/Music/Absolute Music/Absolute Disco Classics [Disc 1]/1-07 Born To Be Alive.aiff"))
+(bind-val chitchat YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Dropbox/ybot/projects/CascadePortals/leweton/audio/March_16_2016/DinnerPreparation/DinnerPreparation_LR.WAV"))
+
+
+($ (print chitchat))
 
 (bind-func dsp:DSPMC
-  (let ((compile_time:i64 (now)))
-    (crossbows.start_time:i64 compile_time) 
-  (lambda (in:float* out:float* time:i64 userData:i8*)
-    (hernandez time FRAMES CHANNELS out)
-    void)))
+  (let ((start_time:i64 (now))
+        (player:YbotAudioSource_t (tref hernandez6 0)))
+    (lambda (in:float* out:float* time:i64 userData:i8*)
+      ;(println "Starting DSP function: " (- time start_time))
+      (player (- time start_time) FRAMES CHANNELS out)
+      ;(println "Finishing DSP function: " (- time start_time))
+      void)))
+
+
+(bind-func dsp:DSP
+  (let ((start_time:i64 (now))
+        (player:YbotAudioSource_t (tref chitchat 0))
+        (out:SAMPLE* (zalloc CHANNELS)))
+    (lambda (in:float time:i64 channel:i64 data:float*)
+      (cond
+       ((= channel 0)
+        (player (- time start_time) 1 CHANNELS out)))
+      (pref out channel))))
+      
+
+($ (print (dsp.player:YbotAudioSource_t)))
 
 (dsp:set! dsp)
