@@ -1,0 +1,146 @@
+;; Required dylibs: libglfw3, libnanovg
+(sys:load "libs/external/glfw3.xtm")
+
+(bind-val width float 1280.)
+(bind-val height float 800.)
+
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_interaction_window (convert width) (convert height))))
+
+(sys:load "libs/external/nanovg.xtm")
+
+(nvg_init) ;; init nanovg
+(bind-val vg NVGcontext* (nvg_create_context))
+(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
+
+(bind-val FRAMERATE float 10.)
+(bind-val FRAMEDURATION float (/ 1. FRAMERATE))
+(bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
+
+
+(bind-func colour_cycle_c:[[float,float]*,float]*
+  (lambda (phase)
+    (lambda (freq)
+      (set! phase (modulo (+ phase (* freq FRAMEDURATION)) 1.:f))
+      (/ (+ 1.:f (cos (* TWOPIf phase))) 2.:f))))
+
+
+(bind-func draw_meter
+  (lambda (i:i64 n:i64 v:float mn:float mx:float fill:NVGcolor*)
+    (let* ((h:float (/ height (i64tof n)))
+           (d:float (if (> h 40.) 20. (/ h 2.)))
+           (r:float (/ d 2.))
+           (x:float (* width 0.1))
+           (w:float (* width 0.8))
+           (t:float (+ x (* w (/ (- v mn) (- mx mn))))) 
+           (y:float (+ (* height 0.1) (* (* height 0.8) (/ (i64tof i) (i64tof n))))))
+      (println "h: " h  "d: " d "r: " r "x: " x "w: " w "t: " t "y: " y)
+      (nvgBeginPath vg)
+      (tfill! fill 1.0 1.0 0.0 1.0)
+      (nvgRoundedRect vg x y w d r)
+      (_nvgFillColor vg fill)
+      (nvgFill vg)
+      (nvgBeginPath vg)
+      (tfill! fill 1.0 0.0 0.0 1.0)
+      (nvgCircle vg (+ t r) (+ y r) r)
+      (_nvgFillColor vg fill)
+      (nvgFill vg))))
+      
+           
+           
+
+
+(bind-func draw_frame
+  (let ((fill (NVGcolor 1.0 1.0 0.0 1.0))
+        (bgc (NVGcolor 0.0 0.0 0.0 1.0))
+        (stroke (NVGcolor 0.0 0.0 1.0 0.5))
+        ;; (cycle1 (colour_cycle_c 0.:f))
+        ;; (cycle2 (colour_cycle_c 0.:f))
+        ;; (cycle3 (colour_cycle_c 0.:f))
+        ;; (cycle4 (colour_cycle_c 0.:f))
+        ;; (cycle5 (colour_cycle_c 0.:f))
+        ;; (cycle6 (colour_cycle_c 0.:f))
+        ;; (cycle7 (colour_cycle_c 0.:f))
+        ;; (cycle8 (colour_cycle_c 0.:f))
+        ;; (cycle9 (colour_cycle_c 0.:f))
+        (i 0) (n 4))
+    (lambda ()
+      (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+      (nvgResetTransform vg)
+      ;; draw background image
+      ;(tfill! bgc (cycle7 .0027:f) (cycle8 .00485:f) (cycle8 .00332:f) 0.95)
+      (_nvgFillColor vg bgc)
+      (nvgBeginPath vg)
+      (nvgRect vg 0. 0. width height)
+      ;(nvgFill vg)
+      
+      (dotimes (i n)
+        (draw_meter i n 0.3 0.0 1.0 fill))
+      ;;   (nvgBeginPath vg)
+      ;;   (let ((r:float (* (- (i64tof (- 10 i)) (/ (i64tof (- 10 i)) 10.)) 50.)))
+      ;;     ;(println i "  " r )
+      ;;     (nvgCircle vg 640. 400. r)
+      ;;     (tfill! fill (cycle1 .037:f) (cycle2 .021:f) (cycle3 .001:f) 0.5)
+      ;;     (_nvgFillColor vg fill)
+      ;;     (nvgFill vg)
+      ;;     (nvgStrokeWidth vg 10.)
+      ;;     (tfill! stroke (cycle4 .023:f) (cycle5 .043:f) (cycle6 .03:f) 0.5)
+      ;;     (_nvgStrokeColor vg stroke)
+      ;;     (nvgStroke vg)))
+       (nvgEndFrame vg))))
+    
+
+
+;; (bind-func draw_frame
+;;   (let ((fill (NVGcolor 1.0 0.0 0.0 0.5))
+;;         (stroke (NVGcolor 0.0 0.0 1.0 0.5))
+;;         (i 0.:f)
+;;         (frame 0))
+;;     (lambda ()
+;;       (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+;;       (nvgResetTransform vg)
+;;       (if (not (null? bg_paint))
+;;           ;; draw background image
+;;           (begin
+;;             (_nvgFillPaint vg bg_paint)
+;;             (nvgBeginPath vg)
+;;             (nvgRect vg 0. 0. width height)
+;;             (nvgFill vg)))        
+;;       ;; loop and draw the circles
+;;       (dotimes (i 200.0)
+;;         (nvgResetTransform vg)
+;;         (nvgTranslate vg
+;;                       (+ (/ width 2.0) (* 200. (cos (* i 0.00025 (convert frame)))))
+;;                       (+ (/ height 2.0) (* 100. (tan (* 0.0001 i (convert frame))))))
+;;         (nvgBeginPath vg)
+;;         (nvgCircle vg 0. 0. 20.)
+;;         (tfill! fill (/ i 200.0) 0.0 (- 1.0 (/ i 200.0)) 0.5)
+;;         (_nvgFillColor vg fill)
+;;         (nvgFill vg)
+;;         (nvgStrokeWidth vg 10.)
+;;         (_nvgStrokeColor vg stroke)
+;;         (nvgStroke vg))
+;;       (set! frame (+ frame 1))
+;;       (nvgEndFrame vg))))
+
+
+(bind-func nvg_draw_loop
+  (lambda (time:i64 delta:float)
+    (nvg_clear)
+    (draw_frame)
+    (glfwPollEvents)
+    (glfwSwapBuffers window)    
+    (let ((next_time (+ time (convert delta))))
+      (callback next_time nvg_draw_loop next_time delta))))
+
+($ (nvg_draw_loop (now) FRAMEDELTA))
+
+(print ($ FRAMEDELTA))
+
+;; to stop the draw loop, eval this version of nvg_draw_loop
+(bind-func nvg_draw_loop
+  (lambda (time:i64 delta:float)
+    (println "nvg_draw_loop callback stopped")
+    void))

@@ -335,6 +335,7 @@
            (converter_err:i32* (zalloc)))
       (pset! converter_err 0 0)
       (loader1)
+      (loader2)
       (let* ((toggle:bool #t)
              (bufferedSource:YbotAudioSource_t
               (lambda (windowStart:i64 windowSize:i64 channels:i64 output:SAMPLE*)

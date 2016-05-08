@@ -1,0 +1,53 @@
+(bind-alias SignalGenerator [SAMPLE]*)
+
+(bind-func constant_c:[SignalGenerator,SAMPLE]*
+  (lambda (value)
+    (lambda ()
+      value)))
+
+
+;(bind-macro (chain . args)
+;            `(,(car args) (chain ,@(cdr args))))
+
+
+(bind-func phasor_c:[SignalGenerator]*
+  (lambda ()
+    (let ((freq:SignalGenerator (constant_c (convert 440.0)))
+          (phase:SAMPLE (convert 0.0)))
+      (lambda ()
+        (set! phase (+ phase (/ (freq) SAMPLERATE)))
+        phase))))
+
+
+(bind-func phasor_c:[SignalGenerator,SAMPLE]*
+  (lambda (freq)
+    (let ((f:SignalGenerator (constant_c freq))
+          (phase:SAMPLE (convert 0.0)))
+      (lambda ()
+        (set! phase (+ phase (/ (f) SAMPLERATE)))
+        phase))))
+
+
+(bind-func phasor_c:[SignalGenerator,SignalGenerator]*
+  (lambda (freq)
+    (let ((phase:SAMPLE (convert 0.0)))
+      (lambda ()
+        (set! phase (+ phase (/ (freq) SAMPLERATE)))
+        (if (>= phase (convert 1.0)) (set! phase (- phase (convert 1.0))))
+        phase))))
+
+
+(bind-func sinetone_c:[SignalGenerator,SAMPLE,SAMPLE]*
+  (lambda (amp freq)
+  (let* ((a:SignalGenerator (constant_c amp))
+         (f:SignalGenerator (constant_c freq))
+         (p:SignalGenerator (phasor_c f)))
+    (lambda ()
+      (* (a) (sin (* STWOPI (p))))))))
+          
+
+(bind-func lfo1:SignalGenerator
+  (sinetone_c 1000.0 10.0))
+
+(bind-macro (patch . args)
+            `(,(car args).,(cadr args) ,(caddr args)))

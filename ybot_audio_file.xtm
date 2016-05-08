@@ -66,35 +66,35 @@
 ;;               (sf_readf audiofile output frames)))))))
         
 
-;; (bind-func YbotAudioFileStream_c:[YbotAudioStream*,i8*]*
-;;   (lambda (path)
-;;     (let* ((filesource (YbotAudioFileSource_c path))
-;;            (file_channels:i64 (filesource.channels:i64))
-;;            (file_samplerate:SAMPLE (filesource.samplerate))
-;;            (bufferedStream:YbotAudioStream* (YbotAudioBufferedStream_c filesource 1000000 file_channels file_samplerate)))
-;;       (printf "%p " bufferedStream)
-;;       (print bufferedStream)
-;;       (if (<> file_samplerate SAMPLERATE)
-;;           (let ((convertedStream:YbotAudioStream* (YbotAudioConvertedStream_c bufferedStream SAMPLERATE)))
-;;             (println "\nConverted Stream: " convertedStream)
-;;             convertedStream)
-;;           bufferedStream))))
-
-
 (bind-func YbotAudioFileStream_c:[YbotAudioStream*,i8*]*
   (lambda (path)
     (let* ((filesource (YbotAudioFileSource_c path))
            (file_channels:i64 (filesource.channels:i64))
            (file_samplerate:SAMPLE (filesource.samplerate))
-           (converter_block_size:i64 32)
-           (converter_err:i32* (zalloc))
-           (conversion_buffer:SAMPLE* (zalloc (* converter_block_size file_channels))
-           (fileStream:YbotAudioStream* (YbotAudioStream filesource file_channels file_samplerate 0 converter_block_size converter_err conversion_buffer)))
+           (bufferedStream:YbotAudioStream* (YbotAudioBufferedStream_c filesource 1000000 file_channels file_samplerate)))
+      (printf "%p " bufferedStream)
+      (print bufferedStream)
       (if (<> file_samplerate SAMPLERATE)
-          (let ((convertedStream:YbotAudioStream* (YbotAudioConvertedStream_c fileStream SAMPLERATE)))
+          (let ((convertedStream:YbotAudioStream* (YbotAudioConvertedStream_c bufferedStream SAMPLERATE)))
             (println "\nConverted Stream: " convertedStream)
             convertedStream)
-          fileStream))))
+          bufferedStream))))
+
+
+;; (bind-func YbotAudioFileStream_c:[YbotAudioStream*,i8*]*
+;;   (lambda (path)
+;;     (let* ((filesource (YbotAudioFileSource_c path))
+;;            (file_channels:i64 (filesource.channels:i64))
+;;            (file_samplerate:SAMPLE (filesource.samplerate))
+;;            (converter_block_size:i64 32)
+;;            (converter_err:i32* (zalloc))
+;;            (conversion_buffer:SAMPLE* (zalloc (* converter_block_size file_channels)))
+;;            (fileStream:YbotAudioStream* (YbotAudioStream filesource file_channels file_samplerate 0 converter_block_size converter_err conversion_buffer)))
+;;       (if (<> file_samplerate SAMPLERATE)
+;;           (let ((convertedStream:YbotAudioStream* (YbotAudioConvertedStream_c fileStream SAMPLERATE)))
+;;             (println "\nConverted Stream: " convertedStream)
+;;             convertedStream)
+;;           fileStream))))
 
 
 
@@ -116,11 +116,9 @@
 
 (bind-func dsp:DSPMC
   (let ((start_time:i64 (now))
-        (player:YbotAudioSource_t (tref hernandez6 0)))
+        (player:YbotAudioSource_t (tref chitchat 0)))
     (lambda (in:float* out:float* time:i64 userData:i8*)
-      ;(println "Starting DSP function: " (- time start_time))
       (player (- time start_time) FRAMES CHANNELS out)
-      ;(println "Finishing DSP function: " (- time start_time))
       void)))
 
 
