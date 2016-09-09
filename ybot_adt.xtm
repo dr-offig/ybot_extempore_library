@@ -7,7 +7,13 @@
 (if (not (defined? '*ybot-lib-dir*))
     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
 (sys:load (string-append *ybot-lib-dir* "/ybot_maths.xtm"))         
-(sys:load "libs/std.xtm")
+
+;; Other dependencies
+(sys:load "libs/core/adt.xtm")
+
+
+;;;;;;;;;;;; Stacks ;;;;;;;;;;;;;;;;;
+;(bind-alias StringStack List{String*})
 
 
 ;;;;;;;;;;;;;; List Stuff ;;;;;;;;;;;;
@@ -29,64 +35,62 @@
 
 
 
-
-
 ;;;;;;;;;;;;;;; Modulo Arithmetic ;;;;;;;;;;;;
-(bind-type Zp <i64,i64>)
+;; (bind-type Zp <i64,i64>)
 
-(bind-func Zp_val:[i64,Zp*]*
-  (lambda (this:Zp*)
-    (tref this 0)))
+;; (bind-func Zp_val:[i64,Zp*]*
+;;   (lambda (this:Zp*)
+;;     (tref this 0)))
 
-(bind-func Zp_base:[i64,Zp*]*
-  (lambda (this:Zp*)
-    (tref this 1)))
+;; (bind-func Zp_base:[i64,Zp*]*
+;;   (lambda (this:Zp*)
+;;     (tref this 1)))
 
-(bind-func Zp_setVal:[i64,Zp*,i64]*
-  (lambda (this:Zp* val:i64)
-    (tset! this 0 (imod val (Zp_base this)))
-    (Zp_val this)))
+;; (bind-func Zp_setVal:[i64,Zp*,i64]*
+;;   (lambda (this:Zp* val:i64)
+;;     (tset! this 0 (imod val (Zp_base this)))
+;;     (Zp_val this)))
 
-(bind-func Zp_setBase:[i64,Zp*,i64]*
-  (lambda (this:Zp* base:i64)
-    (tset! this 1 base)
-    base))
+;; (bind-func Zp_setBase:[i64,Zp*,i64]*
+;;   (lambda (this:Zp* base:i64)
+;;     (tset! this 1 base)
+;;     base))
 
-(bind-func Zp_inc:[i64,Zp*]*
-  (lambda (this:Zp*)
-    (Zp_setVal this (+ (Zp_val this) 1))
-    (Zp_val this)))
+;; (bind-func Zp_inc:[i64,Zp*]*
+;;   (lambda (this:Zp*)
+;;     (Zp_setVal this (+ (Zp_val this) 1))
+;;     (Zp_val this)))
 
-(bind-func Zp_add_Zp:[Zp*,Zp*,Zp*]*
-  (lambda (a:Zp* b:Zp*)
-    (Zp
-     (imod
-      (+ (Zp_val a) (Zp_val b))
-      (Zp_base a))
-     (Zp_base a))))
+;; (bind-func Zp_add_Zp:[Zp*,Zp*,Zp*]*
+;;   (lambda (a:Zp* b:Zp*)
+;;     (Zp
+;;      (imod
+;;       (+ (Zp_val a) (Zp_val b))
+;;       (Zp_base a))
+;;      (Zp_base a))))
 
-(bind-func Zp_add_i64:[Zp*,Zp*,i64]*
-  (lambda (a:Zp* b:i64)
-    (Zp
-     (imod
-      (+ (Zp_val a) b)
-      (Zp_base a))
-     (Zp_base a))))
+;; (bind-func Zp_add_i64:[Zp*,Zp*,i64]*
+;;   (lambda (a:Zp* b:i64)
+;;     (Zp
+;;      (imod
+;;       (+ (Zp_val a) b)
+;;       (Zp_base a))
+;;      (Zp_base a))))
 
 ;(bind-poly Zp_add Zp_add_Zp)
 ;(bind-poly Zp_add Zp_add_i64)
 
 
 ;;;;;;;;;;;;;;;; Loop Array ;;;;;;;;;;;;;
-(bind-type LoopArray <!a*,i64>) 
+(bind-type LoopArray <!a,i64>) 
 
-(bind-func lref:[!a,LoopArray:<!a*,i64>*,i64]*
+(bind-func lref:[!a,LoopArray:<!a,i64>*,i64]*
   (lambda (myArray index)
-    (pref (tref myArray 0) (imod index (tref myArray 1)))))
+    (pref (tref myArray 0) (modulo index (tref myArray 1)))))
 
 (bind-func lset:[void,LoopArray*,i64,!a]*
   (lambda (myArray index value)
-    (pset! (tref myArray 0) (imod index (tref myArray 1)) value)
+    (pset! (tref myArray 0) (modulo index (tref myArray 1)) value)
     void))
 
 ;(bind-func loop_array_test:[void]*

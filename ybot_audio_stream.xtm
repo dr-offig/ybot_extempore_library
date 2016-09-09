@@ -45,13 +45,14 @@
 ;; 7 the AudioSource from which it draws
 ;; 8 an integer ID
 ;; 9 A Mutex for thread synchronisation
-(bind-type YbotAudioSourceBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,YbotAudioSource_t,i64,mutex_t*>)
+;; 10 last_frame of source (or -1 if unknown)
+(bind-type YbotAudioSourceBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,YbotAudioSource_t,i64,mutex_t*,i64>)
 
 (bind-func YbotAudioSourceBuffer_c:[YbotAudioSourceBuffer*,YbotAudioSource_t,i64,i64,SAMPLE]*
   (lambda (source frames channels rate)
     (let ((output:YbotAudioSourceBuffer* (zalloc))
           (mutex_ptr:mutex_t* (zalloc))
-          (data:SAMPLE* (zalloc (* frames channels))))
+          (data:SAMPLE* (halloc (* frames channels))))
       (pset! mutex_ptr 0 (mutex_create))
       (tset! output 0 data)
       (tset! output 1 frames)
@@ -59,12 +60,14 @@
       (tset! output 3 rate)
       (tset! output 7 source)
       (tset! output 9 mutex_ptr)
+      (tset! output 10 -1)
       output)))
 
 
 (bind-func YbotAudioSourceBuffer_d:[void,YbotAudioSourceBuffer*]*
   (lambda (buffer)
     (mutex_destroy (pref (tref buffer 9) 0))
+    (free (tref buffer 0))
     void))
 
 (bind-func YASB_lock:[void,YbotAudioSourceBuffer*]*
@@ -99,6 +102,7 @@
          (frames_loaded (source start_frame frames channels data)))
       (tset! buffer 4 start_frame)
       (tset! buffer 5 start_frame)
+      (if (< frames_loaded frames) (tset! buffer 10 (+ start_frame frames_loaded)))
       (YASB_unlock buffer)
       (= frames_loaded frames))))
 
@@ -113,6 +117,7 @@
 
 (bind-func YASB_contains:[i64,YbotAudioSourceBuffer*,i64,i64]*
   (lambda (buffer windowStart windowSize)
+    ;(printf "\n\n~~~\nTesting if buffer %p contains window from %lld of size %lld\n" buffer windowStart windowSize)
     (if (YASB_trylock buffer)
         (let* ((bufStart:i64 (tref buffer 4))
                (bufSize:i64 (tref buffer 1))
@@ -128,8 +133,11 @@
                  ((< windowEnd (+ bufEnd (/ bufSize 2))) YASB_just_past)
                  (else YASB_well_past)))
           (YASB_unlock buffer)
+          ;(printf "Answer: %lld\n~~~\n" output)
           output)
-        YASB_not_ready)))
+        (begin
+          ;(printout "buffer is locked\n~~~\n")
+          YASB_not_ready))))
 
 
 (bind-func YASB_fetch_window:[bool,YbotAudioSourceBuffer*,i64,i64,SAMPLE*]*
@@ -155,7 +163,7 @@
             ;(printf "For buffer %p Requested window starting at %lld and length %lld is out of range\n" buffer startFrame windowSize)
             #f)))
         (begin
-          (println "Buffer is locked!")
+          ;(println "Buffer is locked!")
           #f))))
 
 
@@ -179,7 +187,7 @@
             ;(printf "For buffer %p Requested window starting at %lld and length %lld is out of range\n" buffer startFrame windowSize)
             #f)))
         (begin
-          (println "Buffer is locked!")
+          ;(println "Buffer is locked!")
           #f))))
     
 
@@ -233,7 +241,8 @@
 ;; 4 block_size      (for sample rate conversion)
 ;; 5 error code      (for sample rate conversion)
 ;; 6 conversion buffer (for sample rate conversion)
-(bind-type YbotAudioStream <YbotAudioSource_t,i64,SAMPLE,i64,i64,i32*,SAMPLE*>)
+;; 7 EOS?
+(bind-type YbotAudioStream <YbotAudioSource_t,i64,SAMPLE,i64,i64,i32*,SAMPLE*,bool>)
 
 ;; Global stateless provider function
 (bind-func YbotSRC_provider:src_callback_t
@@ -244,7 +253,8 @@
            (channels (tref stream 1))
            (read_head (tref stream 3))
            (block_size (tref stream 4))
-           (conversion_buffer (tref stream 6)))
+           (conversion_buffer (tref stream 6))
+           (eos (tref stream 7)))
       ;(printf "---- provider ----\n readhead: %lld\n size: %lld\n channels %lld\n into buffer %p\n" read_head block_size channels conversion_buffer)
       ;(print stream)
       ;(println "\n-------------------------")
@@ -279,7 +289,7 @@
            (input_err:i32* (tref input_stream 5))      
            (output_err:i32* (zalloc)))
       (pset! output_err 0 (i64toi32 0))
-      (let* ((output_stream (YbotAudioStream null output_channels output_rate 0 output_block_size output_err output_conversion_buffer))
+      (let* ((output_stream (YbotAudioStream null output_channels output_rate 0 output_block_size output_err output_conversion_buffer #f))
              (converter:SRC_STATE*
               (src_callback_new (cast (get_native_fptr YbotSRC_provider) src_callback_t)
                                   SRC_SINC_BEST_QUALITY (i64toi32 input_channels) input_err (cast input_stream i8*)))
@@ -339,20 +349,24 @@
       (let* ((toggle:bool #t)
              (bufferedSource:YbotAudioSource_t
               (lambda (windowStart:i64 windowSize:i64 channels:i64 output:SAMPLE*)
-                (if toggle
-                    (let ((activeStatus:i64 (YASB_contains buffer1 windowStart windowSize))
-                          (idleStatus:i64 (YASB_contains buffer2 windowStart windowSize)))
-                      (cond
-                       ((= activeStatus YASB_not_ready) (println "Active Buffer is not ready!") 0)
-                       ((= activeStatus YASB_buffer_too_small) (println "Streaming buffer too small for requested audio window") 0)
-                       ((or (= activeStatus YASB_before) (= activeStatus YASB_just_past) (= activeStatus YASB_well_past))
-                        (cond
-                         ((or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end))
-                          (printf "Buffer 2 is finished loading from %lld to %lld and contains offset %lld\n" (tref buffer2 4) (+ (tref buffer2 4) (tref buffer2 1)) windowStart)
-                          (set! toggle #f)
-                          (set! busyLoading2 #f)
-                          windowSize)
-                         ((= idleStatus YASB_not_ready) 0)
+                (if (and (<= 0 (tref buffer1 10)) (< (tref buffer1 10) (+ windowStart windowSize)))
+                    -1
+                    (if toggle
+                        (let ((activeStatus:i64 (YASB_contains buffer1 windowStart windowSize))
+                              (idleStatus:i64 (YASB_contains buffer2 windowStart windowSize)))
+                          (cond
+                           ((= activeStatus YASB_not_ready)
+                        ;(println "Active Buffer is not ready!")
+                            0)
+                           ((= activeStatus YASB_buffer_too_small) (println "Streaming buffer too small for requested audio window") 0)
+                           ((or (= activeStatus YASB_before) (= activeStatus YASB_just_past) (= activeStatus YASB_well_past))
+                            (cond
+                             ((or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end))
+                              (printf "Buffer 2 is finished loading from %lld to %lld and contains offset %lld\n" (tref buffer2 4) (+ (tref buffer2 4) (tref buffer2 1)) windowStart)
+                              (set! toggle #f)
+                              (set! busyLoading2 #f)
+                              windowSize)
+                             ((= idleStatus YASB_not_ready) 0)
                          (else
                           (cond
                            ((not busyLoading2)
@@ -367,9 +381,9 @@
                              (else 0))
                             windowSize)
                            (else 0)))))
-                       ((= activeStatus YASB_near_end)
-                        (cond
-                         ((not (or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end) (= idleStatus YASB_not_ready) busyLoading2))
+                           ((= activeStatus YASB_near_end)
+                            (cond
+                             ((not (or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end) (= idleStatus YASB_not_ready) busyLoading2))
                           (cond
                            ((ybot_trylock conch2)
                             (println "\n\n --------- Initiating Loading into Buffer2 -----")
@@ -381,60 +395,62 @@
                             windowSize)
                            (else 0)))
                          (else 0)))
-                       (else windowSize))
-                      (if (ybot_trylock conch1)
-                          (let ((success:bool (YASB_fetch_window buffer1 windowStart windowSize output)))
-                            (mutex_unlock conch1)
+                           (else windowSize))
+                          (if (ybot_trylock conch1)
+                              (let ((success:bool (YASB_fetch_window buffer1 windowStart windowSize output)))
+                                (mutex_unlock conch1)
                             (if success windowSize 0))
                           0))
-                    (let ((activeStatus:i64 (YASB_contains buffer2 windowStart windowSize))
-                          (idleStatus:i64 (YASB_contains buffer1 windowStart windowSize)))
-                      (cond
-                       ((= activeStatus YASB_not_ready) (println "Active Buffer is not ready!") 0)
-                       ((= activeStatus YASB_buffer_too_small) (println "Streaming buffer too small for requested audio window") 0)
-                       ((or (= activeStatus YASB_before) (= activeStatus YASB_just_past) (= activeStatus YASB_well_past))
-                        (cond
-                         ((or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end))
-                    ;(println "Toggling: setting buffer 1 active, and buffer 2 is ready")
-                          (printf "Buffer 1 is finished loading from %lld to %lld and contains offset %lld\n" (tref buffer1 4) (+ (tref buffer1 4) (tref buffer1 1)) windowStart)
-                          (set! toggle #t)
-                          (set! busyLoading1 #f)
-                          windowSize)
-                         ((= idleStatus YASB_not_ready) 0)
-                         (else
+                        (let ((activeStatus:i64 (YASB_contains buffer2 windowStart windowSize))
+                              (idleStatus:i64 (YASB_contains buffer1 windowStart windowSize)))
                           (cond
-                           ((not busyLoading1)
+                           ((= activeStatus YASB_not_ready)
+                        ;(println "Active Buffer is not ready!")
+                            0)
+                           ((= activeStatus YASB_buffer_too_small) (println "Streaming buffer too small for requested audio window") 0)
+                           ((or (= activeStatus YASB_before) (= activeStatus YASB_just_past) (= activeStatus YASB_well_past))
                             (cond
-                             ((ybot_trylock conch1)
-                              (set! busyLoading1 #t)
-                              (printf "Emergency Loading into buffer1 at offset %lld\n" windowStart)
-                              (set! loadFrame1 windowStart)
-                              (mutex_unlock conch1)
-                              (spawn loader1)
+                             ((or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end))
+                    ;(println "Toggling: setting buffer 1 active, and buffer 2 is ready")
+                              (printf "Buffer 1 is finished loading from %lld to %lld and contains offset %lld\n" (tref buffer1 4) (+ (tref buffer1 4) (tref buffer1 1)) windowStart)
+                              (set! toggle #t)
+                              (set! busyLoading1 #f)
                               windowSize)
-                             (else 0))
-                            windowSize)
-                           (else 0)))))
-                       ((= activeStatus YASB_near_end)
-                        (cond
-                         ((not (or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end) (= idleStatus YASB_not_ready) busyLoading2))
-                          (cond
-                           ((ybot_trylock conch1)
-                            (set! busyLoading1 #t)
-                            (printf "Standard Loading into buffer1 at offset %lld on thread %p\n" windowStart (thread_self))
-                            (set! loadFrame1 windowStart)
-                            (mutex_unlock conch1)
-                            (spawn loader1)
-                            windowSize)
-                           (else 0)))
-                         (else 0)))
-                       (else windowSize))
-                      (if (ybot_trylock conch2)
-                          (let ((success:bool (YASB_fetch_window buffer2 windowStart windowSize output)))
-                            (mutex_unlock conch2)
-                            (if success windowSize 0))
-                          0))))))
-        (YbotAudioStream bufferedSource outputChannels nominalSampleRate 0 32 converter_err conversion_buffer)))))
+                             ((= idleStatus YASB_not_ready) 0)
+                             (else
+                              (cond
+                               ((not busyLoading1)
+                                (cond
+                                 ((ybot_trylock conch1)
+                                  (set! busyLoading1 #t)
+                                  (printf "Emergency Loading into buffer1 at offset %lld\n" windowStart)
+                                  (set! loadFrame1 windowStart)
+                                  (mutex_unlock conch1)
+                                  (spawn loader1)
+                                  windowSize)
+                                 (else 0))
+                                windowSize)
+                               (else 0)))))
+                           ((= activeStatus YASB_near_end)
+                            (cond
+                             ((not (or (= idleStatus YASB_well_inside) (= idleStatus YASB_near_end) (= idleStatus YASB_not_ready) busyLoading2))
+                              (cond
+                               ((ybot_trylock conch1)
+                                (set! busyLoading1 #t)
+                                (printf "Standard Loading into buffer1 at offset %lld on thread %p\n" windowStart (thread_self))
+                                (set! loadFrame1 windowStart)
+                                (mutex_unlock conch1)
+                                (spawn loader1)
+                                windowSize)
+                               (else 0)))
+                             (else 0)))
+                           (else windowSize))
+                          (if (ybot_trylock conch2)
+                              (let ((success:bool (YASB_fetch_window buffer2 windowStart windowSize output)))
+                                (mutex_unlock conch2)
+                                (if success windowSize 0))
+                              0)))))))
+        (YbotAudioStream bufferedSource outputChannels nominalSampleRate 0 32 converter_err conversion_buffer #f)))))
               
 
 (bind-func YbotAudioBufferedStream_d:[void,YbotAudioStream*]*
@@ -446,7 +462,20 @@
     void)))
 
 
-
+;; (bind-func YbotAudioTranscode:[bool,YbotAudioStream*,i64,i64,i8*,i64,audiofile_t,SAMPLE*]*
+;;   (lambda (stream windowStart windowSize stage path handle scratch)
+;;     (if (= stage 0)
+;;         (let ((info:SF_INFO* (zalloc))
+;;               (channels (tref stream 1))
+;;               (block_size (tref stream 4)))
+;;           (set! scratch (zalloc (* block_size channels)))
+;;           (set! handle (sf_open path SFM_WRITE info))
+;;           (set! stage 1)))
+;;     (let* ((source:YbotAudioSource_t (tref stream 0))
+;;            (frames_read:i64 (source window windowSize scratch)
+    
+    
+    
 
           
     

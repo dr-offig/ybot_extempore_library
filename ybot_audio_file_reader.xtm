@@ -178,7 +178,7 @@
                 (set! read_buffer_width frames) 0)
             ;; initialise and allocate memory for the AudioBuffer
             (let*
-                ((frames_read 0) (current_file_read_frame 0)
+                ((frames_read:i64 0) (current_file_read_frame:i64 0)
                  (buffer1:YbotAudioFileBuffer* (YbotAudioFileBuffer_c read_buffer_width channels (convert samplerate) audiofile 1))
                  (buffer2:YbotAudioFileBuffer* (YbotAudioFileBuffer_c read_buffer_width channels (convert samplerate) audiofile 2)))
               ;; read the audio data from the file into buffer1
@@ -224,7 +224,7 @@
                        ((= p YAFB_well_inside) ;; All is well :)
                         void) 
                        (else ;; Something weird is happening - generate noise so we can notice it
-                        (pset! value 0 (convert (* 0.1 (random))))
+                        (pset! value 0 (dtof (* 0.1 (random))))
                         void
                         )))
                   (YAFB_fetch_sample playbuf f c success value)

@@ -31,12 +31,12 @@
            (lambda (a b t)
              (+ (* t b) (* (- 1.0 t) a))))
 
-(bind-func mod_i:[i64,i64,i64]*
+(bind-func mod:[i64,i64,i64]*
   (lambda (x:i64 b:i64)
     (let ((t:i64 (% x b)))
       (if (>= t 0) t (+ t b)))))
 
-(bind-func mod_s:[SAMPLE,SAMPLE,SAMPLE]*
+(bind-func mod:[SAMPLE,SAMPLE,SAMPLE]*
   (lambda (x:SAMPLE b:SAMPLE)
     (let ((t:SAMPLE (% x b)))
       (if (>= t (convert 0)) t (+ t b)))))
@@ -64,175 +64,24 @@
   (lambda (x y)
     (i32toi64 (abs (i64toi32 (- x y))))))
 
-;(bind-poly dist dist_f)
-;(bind-poly dist dist_d)
-;(bind-poly dist dist_i32)
-;(bind-poly dist dist_i64)
+(bind-func dist:[float,float,float]*
+  (lambda (x y)
+    (dist_f x y)))
+
+(bind-func dist:[double,double,double]*
+  (lambda (x y)
+    (dist_d x y)))
+
+(bind-func dist:[i32,i32,i32]*
+  (lambda (x y)
+    (dist_i32 x y)))
+
+(bind-func dist:[i64,i64,i64]*
+  (lambda (x y)
+    (dist_i64 x y)))
 
 
-;;;;;; COLUMN MAJOR Matrix Library --- Deprecated, use Matrix and Vector from libs/core/math_ext.xtm instead ;;;
-;; (bind-type Vector <!a,i64>)
-;; (bind-type Matrix <!a,i64,i64>)
-
-;; (bind-func print_serial:[void,Matrix*]*
-;;   (lambda (m)
-;;     (let ((cc:i64 0)
-;;           (s:i64 (* (tref m 1) (tref m 2))))
-;;       (dotimes (cc s)
-;;         (print (pref (tref m 0) cc))
-;;         (print " ")))
-;;     void))
-
-
-;; (bind-func Identity:[Matrix*,i64]*
-;;   (lambda (size)
-;;     (let* ((data (zalloc (* size size)))
-;;            (output (Matrix data size size))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0))
-;;       (dotimes (j size)
-;;         (dotimes (i size)
-;;           (if (= j i)
-;;               (pset! data cc (convert 1))
-;;               (pset! data cc (convert 0)))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-              
-
-;; (bind-func Matrix_of_Ones:[Matrix*,i64,i64]*
-;;   (lambda (rows cols)
-;;     (let* ((data (zalloc (* rows cols)))
-;;            (output (Matrix data rows cols))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0))
-;;       (dotimes (j cols)
-;;         (dotimes (i rows)
-;;           (pset! data cc (convert 1))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-
-;; (bind-func Matrix_of_Zeros:[Matrix*,i64,i64]*
-;;   (lambda (rows cols)
-;;     (let* ((data (zalloc (* rows cols)))
-;;            (output (Matrix data rows cols))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0))
-;;       (dotimes (j cols)
-;;         (dotimes (i rows)
-;;           (pset! data cc (convert 0))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-
-;; (bind-func ConstantMatrix:[Matrix*,i64,i64,!a]*
-;;   (lambda (rows cols val)
-;;     (let* ((data (zalloc (* rows cols)))
-;;            (output (Matrix data rows cols))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0))
-;;       (dotimes (j cols)
-;;         (dotimes (i rows)
-;;           (pset! data cc (convert val))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-
-;; (bind-func EnuMatrix:[Matrix*,i64,i64]*
-;;   (lambda (rows cols)
-;;     (let* ((data (zalloc (* rows cols)))
-;;            (output (Matrix data rows cols))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0)) 
-;;       (dotimes (j cols)
-;;         (dotimes (i rows)
-;;           (pset! data cc (convert cc))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-
-
-;; (bind-func EnuCols:[Matrix*,i64,i64]*
-;;   (lambda (rows cols)
-;;     (let* ((data (zalloc (* rows cols)))
-;;            (output (Matrix data rows cols))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0)) 
-;;       (dotimes (j cols)
-;;         (dotimes (i rows)
-;;           (pset! data cc (convert j))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-
-
-;; (bind-func EnuRows:[Matrix*,i64,i64]*
-;;   (lambda (rows cols)
-;;     (let* ((data (zalloc (* rows cols)))
-;;            (output (Matrix data rows cols))
-;;            (i:i64 0) (j:i64 0) (cc:i64 0)) 
-;;       (dotimes (j cols)
-;;         (dotimes (i rows)
-;;           (pset! data cc (convert i))
-;;           (set! cc (+ cc 1))))
-;;       output)))
-
-
-;; (bind-func Matrix_rows:[i64,Matrix*]*
-;;   (lambda (m)
-;;     (tref m 1)))
-
-;; (bind-func Matrix_cols:[i64,Matrix*]*
-;;   (lambda (m)
-;;     (tref m 2)))
-
-;; (bind-func Matrix_data:[!a,Matrix*]*
-;;   (lambda (m)
-;;     (tref m 0)))
-
-;; (bind-func mref:[!a,Matrix*,i64,i64]*
-;;   (lambda (m i j)
-;;     (pref (tref m 0) (+ (* j (tref m 1)) i))))
-
-;; (bind-func mset:[void,Matrix*,i64,i64,!a]*
-;;   (lambda (m i j val)
-;;     (pset! (tref m 0) (+ (* j (tref m 1)) i) val)
-;;     void))
-  
-
-;; (bind-func print:[void,Matrix*]*
-;;   (lambda (m)
-;;     (let ((rows:i64 (Matrix_rows m))
-;;           (cols:i64 (Matrix_cols m))
-;;           (i:i64 0) (j:i64 0))
-;;       (dotimes (i rows)
-;;         (printf "[")
-;;         (dotimes (j cols)
-;;           (print (mref m i j))
-;;           (if (< j (- cols 1)) (printf " ")))
-;;         (printf "]\n")))
-;;     void))
-
-
-
-;; ;(bind-func MatrixMult_inPlace:[i1,Matrix*,Matrix*,Matrix*]*
-;; ;  (lambda (a b c)
-;; ;    (if (= (Matrix_cols a) (Matrix_rows b))
-;; ;        (begin
-;; ;          (mmul
-;; ;           (Matrix_data a) (Matrix_rows a) (Matrix_cols a)
-;; ;           (Matrix_data b) (Matrix_rows b) (Matrix_cols b)
-;; ;           (Matrix_data c))
-;; ;          (i64toi1 1))
-;; ;        (i64toi1 0))))
-    
-
-;; (bind-func MatrixMult_inPlace:[i1,Matrix*,Matrix*,Matrix*]*
-;;   (lambda (m n p)
-;;     (let ((a (tref m 0)) (ra (tref m 1)) (ca (tref m 2))
-;;           (b (tref n 0)) (rb (tref n 1)) (cb (tref n 2))
-;;           (d (tref p 0)) (rd (tref p 1)) (cd (tref p 2)))
-;;       (if (and (= ca rb) (= ra rd) (= cb cd))
-;;           (let ((id:i64 0) (jd:i64 0))
-;;             (dotimes (id rd)
-;;               (dotimes (jd cd)
-;;                 (let ((k:i64 0) (v:!a (convert 0.0)))
-;;                   (dotimes (k ca)
-;;                     (set! v (+ v (* (mref m id k) (mref n k jd)))))
-;;                   (mset p id jd v))))
-;;             (i64toi1 1))
-;;           (i64toi1 0)))))
-
-
+;;;;;;;;;;;;;;;;; Extra Matrix Helper Functions ;;;;;;;;;;;;;;;;;;
 
 (bind-func mget:[!b,Matrix{!a}*,i64,i64]*
   (lambda (m i j)
@@ -265,32 +114,6 @@
         void)))
 
 
-
-;; (bind-func Matrix_test3
-;;   (lambda ()
-;;     (let ((rows:i64 3) (i:i64 0)
-;;           (cols:i64 2) (j:i64 0))
-;;       (let* ((data:double* (zalloc (* rows cols)))
-;;              (m (Matrix data rows cols #f)))
-;;         (dotimes (i rows)
-;;           (printout "| ")
-;;           (dotimes (j cols)
-;;             (printout (mget m i j) " "))
-;;           (printout "|\n"))
-;;         (dotimes (i rows)
-;;           (dotimes (j cols)
-;;             (mset m i j (random))))
-;;         (printf "\n\n\n")
-;;         (dotimes (i rows)
-;;           (printout "| ")
-;;           (dotimes (j cols)
-;;             (printout (mget m i j) " "))
-;;           (printout "|\n"))
-;;         m))))
-
-;; (Matrix_test3)
-          
-
 (bind-func Matrix_read_from_csv:[Matrix{double*}*,i8*]*
   (lambda (path)
     (let* ((handle (yfs_open path))
@@ -318,7 +141,7 @@
                      (let* ((entries (regex_split  "," (String line)))
                             (c:i64 (length entries)))
                        (if (< 0 c)
-                           (let* ((buf:i8* (String_cstr (car entries))))
+                           (let* ((buf:i8* (cstring (car entries))))
                              (cond
                               ((isnumeric buf) (yfs_file_seek handle mark) c) ;; return the number of columns found
                               (else (set! mark (yfs_current_playhead handle)) (burnin done))))
@@ -337,7 +160,7 @@
                          (let ((cc:i64 0))
                            (dotimes (cc c)
                              (let* ((next_token (nth entries cc))
-                                   (tmp (String_cstr next_token))
+                                   (tmp (cstring next_token))
                                    (value (atof tmp)))
                                (mset mat n cc value)))
                              (readloop mat (+ n 1) done))))
@@ -353,11 +176,19 @@
         (yfs_close handle)
         output))))
 
-;; (bind-func test5
-;;   (lambda (path:i8*)
-;;     (Matrix_read_from_csv path)))
+(bind-func test-powf:[float,float,float]*
+  (lambda (x:float y:float)
+    (pow x y)))
+
+(test-powf 3. 2.)
+
+;;;;;;;;;;;;;;;;; Gaussians ;;;;;;;;;;;;;;;;;;
+(bind-func gaussian:[SAMPLE,SAMPLE,SAMPLE,SAMPLE]*
+  (lambda (x:SAMPLE mu:SAMPLE sigma:SAMPLE)
+    (if (= sigma (convert 0))
+        (if (= x mu) (convert 1) (convert 0))
+        (/ (exp (* (dtof -0.5) (pow (/ (- x mu) sigma) (dtof 2.0)))) (* sigma (sqrt STWOPI))))))
 
 
-;; (print (test5 "/Users/s2805534/Dropbox/ybot/grants/DECRA2017/AIR_1_4/test.csv"))
 
 (set! *xtmlib-ybot-math-loaded* #t)

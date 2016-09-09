@@ -3,21 +3,12 @@
     (sys:load-escape "ybot_filesystem library already loaded"))
 (define *xtmlib-ybot-filesystem-loaded* #f)
 
-;(if (not (defined? '*ybot-lib-dir*))
-;    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;(sys:load (string-append *ybot-lib-dir* "/ybot_????.xtm"))
 (sys:load "libs/core/adt.xtm")
 (sys:load "libs/external/apr.xtm")
 
 (bind-macro (@ . args)
             `(pref ,(car args) 0))
 
- ;; (bind-macro (spack_out . args)
- ;;            `(begin (print ,(cdr args))
- ;;                    ,(car args)))
-
-(bind-macro (spack_out . args)
-                    ,(car args))
 
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
 
@@ -36,13 +27,14 @@
 (bind-val comma String* (String ","))
 (bind-val tab String* (String "\t"))
 
+(bind-val little_endian bool #t)
 
 
 ;;;;;;;;;;;;;;;;;;;;; File name utilities ;;;;;;;;;;;;;;;;;;
 (bind-func String2ByteList:[List{i8}*,String*]*
   (lambda (str)
-    (let* ((n (String_length str))
-           (cstr (String_cstr str))
+    (let* ((n (length str))
+           (cstr (cstring str))
            (loop
             (lambda (i output); ((i n) (output '()))
               (cond
@@ -88,35 +80,88 @@
     
 (bind-func yfs_name:[i8*,i8*]*
   (lambda (full_path)
-    (String_cstr (car (last (yfs_split full_path))))))
+    (let ((tokens (yfs_split full_path)))
+      (if (= (length tokens) 0)
+          full_path
+          (cstring (car (last (yfs_split full_path))))))))
     
-
-($ (cdr (reverse (cdr (yfs_split "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))))
+;; example 
+;; ($ (cdr (reverse (cdr (yfs_split "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))))
 
 (bind-func yfs_base:[i8*,i8*]*
   (lambda (full_path)
-    (String_cstr (yfs_join slash (reverse (cdr (reverse (yfs_split full_path))))))))
+    (cstring (yfs_join slash (reverse (cdr (reverse (yfs_split full_path))))))))
+
+;($ (printf "%s" (yfs_base "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))
+;($ (print (yfs_split "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))
+
+(bind-func yfs_file_extension:[i8*,i8*]*
+  (lambda (name_or_path)
+    (let* ((name:i8* (yfs_name name_or_path))
+           (r:i8* (zalloc 3)))
+      (pset! r 0 (i64toi8 92))
+      (pset! r 1 (i64toi8 46))
+      (pset! r 2 (i64toi8 0))
+      (let ((tokens (cdr (regex_split r (String name)))))
+        (if (= (length tokens) 0)
+            (cstring (String ""))
+            (cstring (car (last (cdr (regex_split r (String name)))))))))))
 
 
-($ (printf "%s" (yfs_base "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))
-($ (print (yfs_split "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")))
+(bind-val yfs_global_pool apr_pool_t* (apr_pool_create))
+(bind-func yfs_clear_global_pool:[void]*
+  (lambda ()
+    (apr_pool_destroy yfs_global_pool)
+    (set! yfs_global_pool (apr_pool_create))
+    void))
+       
 
+
+;; (bind-func yfs_file_length:[i64,i8*]*
+;;   (let ((pool:apr_pool_t* (apr_pool_create)))
+;;     (zone_cleanup (apr_pool_destroy pool))
+;;     (lambda (path)
+;;       (let ((info:apr_finfo_t* (salloc)))
+;;         (apr_stat info path APR_FINFO_SIZE pool)
+;;         (apr_pool_destroy pool)
+;;         (tref info 9)))))
 
 (bind-func yfs_file_length:[i64,i8*]*
-  (let ((pool:apr_pool_t* (apr_pool_create)))
-    (zone_cleanup (apr_pool_destroy pool))
-    (lambda (path)
-      (let ((info:apr_finfo_t* (salloc)))
-        (apr_stat info path APR_FINFO_SIZE pool)
-        (tref info 9)))))
+  (lambda (path)
+    (let ((info:apr_finfo_t* (salloc)))
+      (apr_stat info path APR_FINFO_CSIZE yfs_global_pool)
+      (tref info 9))))
+
+
+(bind-func yfs_is_directory:[bool,i8*]*
+  (lambda (path)
+    (let ((info:apr_finfo_t* (salloc)))
+      (apr_stat info path APR_FINFO_TYPE yfs_global_pool)
+      (= APR_DIR (tref info 3)))))
+
+
+(bind-func yfs_is_regular_file:[bool,i8*]*
+  (lambda (path)
+    (let ((info:apr_finfo_t* (salloc)))
+      (apr_stat info path APR_FINFO_TYPE yfs_global_pool)
+      (= APR_REG (tref info 3)))))
+
+
+
+;; (bind-func yfs_open:[apr_file_t*,i8*]*
+;;   (let ((pool:apr_pool_t* (apr_pool_create)))
+;;     (zone_cleanup (apr_pool_destroy pool))
+;;     (lambda (path)
+;;       (let ((handle_ref:apr_file_t** (zalloc)))
+;;         (apr_file_open handle_ref path (+ APR_FOPEN_READ APR_FOPEN_WRITE) APR_FPROT_OS_DEFAULT pool)
+;;         (pref handle_ref 0)))))
+
 
 (bind-func yfs_open:[apr_file_t*,i8*]*
-  (let ((pool:apr_pool_t* (apr_pool_create)))
-    (zone_cleanup (apr_pool_destroy pool))
-    (lambda (path)
-      (let ((handle_ref:apr_file_t** (zalloc)))
-        (apr_file_open handle_ref path (+ APR_FOPEN_READ APR_FOPEN_WRITE) APR_FPROT_OS_DEFAULT pool)
-        (pref handle_ref 0)))))
+  (lambda (path)
+    (let ((handle_ref:apr_file_t** (zalloc)))
+        (apr_file_open handle_ref path (+ APR_FOPEN_READ APR_FOPEN_WRITE APR_FOPEN_CREATE) APR_FPROT_OS_DEFAULT yfs_global_pool)
+        (pref handle_ref 0))))
 
 
 (bind-func yfs_close:[apr_status_t,apr_file_t*]*
@@ -137,6 +182,14 @@
     (lambda (handle)
       (pset! playhead_ref 0 0)
       (apr_file_seek handle APR_SET playhead_ref)
+      (@ playhead_ref))))
+
+
+(bind-func yfs_file_goto_end:[apr_off_t,apr_file_t*]*
+  (let ((playhead_ref:apr_off_t* (zalloc)))
+    (lambda (handle)
+      (pset! playhead_ref 0 0)
+      (apr_file_seek handle APR_END playhead_ref)
       (@ playhead_ref))))
 
 
@@ -198,196 +251,162 @@
                            (pset! buf (+ n 1) 0)
                            (finish (+ n 1))))))))))))
         (loop 0)))))
-                          
-      
-        
-;;;;;;;;;;;;;;;;;;;;; CRUD BELOW ;;;;;;;;;;;;;;;;;;;;;;;;
-;(bind-val EOF i64 -1)
 
 
-;; (bind-func schmick:[void,i8*]*
-;;   (lambda (filepath:i8*)
-;;     (let*
-;;         ((sz:i64 (* 80 4 200))
-;;          (cmd:i8*
-;;           (let ((tmp:i8* (zalloc (+ (strlen filepath) 7))))
-;;             (strcpy tmp "ls -al ")))
-;;          (f (popen (strcat cmd filepath) "r"))
-;;          (buf:i8* (salloc sz))
-;;          (reader:[void]*
-;;           (lambda ()
-;;             (let ((c:i64 (i32toi64 (fgetc f))))
-;;               (if (<> c EOF)
-;;                   (begin
-;;                     (printf "%c" (i64toi8 c))
-;;                     (reader))
-;;                   (begin 
-;;                     (printf "\n--------------------------------------------------------\n")
-;;                     void))))))
-;;       (reader))))
-                  
-
-;(schmick ".")
+(bind-func yfs_write_byte:[bool,apr_file_t*,i8]*
+  (lambda (file value)
+    (let ((psz:i64* (salloc))
+          (data:i8* (salloc)))
+      (pset! psz 0 1)
+      (pset! data 0 value)
+      (apr_file_write file data psz)
+      (= 1 (@ psz)))))
 
 
-;; (bind-func is_directory:[bool,i8*]*
-;;   (lambda (filepath:i8*)
-;;     (let*
-;;         ((cmd:i8*
-;;           (let ((tmp:i8* (zalloc (+ (strlen filepath) 256))))
-;;             (strcpy tmp "stat -f %T " )))
-;;          (f (popen (strcat cmd filepath) "r")))
-;;       (let ((c:i32 (fgetc f)))
-;;         (pclose f)
-;;         (= c (i64toi32 47))))))
-    
+(bind-func yfs_write_i32:[bool,apr_file_t*,i32]*
+  (lambda (file value)
+    (let ((psz:i64* (salloc))
+          (bytes:i8* (salloc 4)))
+          (let* ((byte1:i8 (i32toi8 (& value (i64toi32 255))))
+                 (byte2:i8 (i32toi8 (& (>> value 8) (i64toi32 255))))
+                 (byte3:i8 (i32toi8 (& (>> value 16) (i64toi32 255))))
+                 (byte4:i8 (i32toi8 (& (>> value 24) (i64toi32 255)))))
+            ;;(printf "%x %x %x %x\n" byte1 byte2 byte3 byte4)
+            (pset! psz 0 4)
+            (if little_endian
+                (pfill! bytes byte1 byte2 byte3 byte4)
+                (pfill! bytes byte4 byte3 byte2 byte1))
+            (apr_file_write file bytes psz)
+            (= 4 (@ psz))))))
 
-;; (is_directory "Wormhole")
 
-
-;; (bind-func sys_query:[i8*,i8*,i8*]
-;;   (lambda (cmd:i8* arg:i8*)
-;;     (let* ((block_size:i64 1014)
-;;            (output:i8* (zalloc block_size))
-;;            (tmp:i8* (salloc (+ (strlen cmd) (strlen arg)))))
-;;       (strcpy tmp cmd) (strcat tmp arg)
-;;       (let* ((f (popen tmp "r"))
-;;              (reader:[void,i8*i64]*
-;;               (lambda (buf sz)
-;;                 (let ((n (fread buf 1 sz)))
-;;                   (if (< n sz)
-;;                       output
-;;                       (let* ((sz2 (* sz 2))
-;;                              (buf2:i8* (zalloc sz2)))
-;;                         (memcpy buf2 buf sz)
-;;                         (set! output buf2)
-
-;;                         (reader mm)
-                            
-                    
-             
-    
-
+(bind-func yfs_write_cstring:[bool,apr_file_t*,i8*]*
+  (lambda (file cstr)
+    (let ((sz:i64* (salloc))
+          (n (strlen cstr)))
+      (pset! sz 0 n)
+      (apr_file_write file cstr sz)
+      (= n (@ sz)))))
 
   
+(bind-func yfs_file_count:[i64,i8*]*
+  (lambda (path)
+    (let* ((advertised_length:i64 (yfs_file_length path))
+           (pEOF:bool* (zalloc))
+           (handle:apr_file_t* (yfs_open path))
+           (readloop:[i64,i64]*
+            (lambda (cc)
+              (if (not (@ pEOF))
+                  (begin
+                    (yfs_read_byte handle pEOF)
+                    (if (= (modulo cc 1000000) 0)
+                        (println (/ cc 1000000) " / " (/ advertised_length 1000000)))
+                    (readloop (+ cc 1)))
+                  (begin
+                    (yfs_close handle)
+                    (println cc)
+                    cc)))))
+      (readloop 0))))
 
 
-;; (bind-func descend_into_dir:[bool,i8*]*
-;;   (lambda (filepath)
-;;     (if (is_directory filepath)
-;;         (let (((cmd:i8*
-;;           (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
-;;             (strcpy tmp "file ")))
-;;                (f (popen (strcat cmd dirpath) "r"))))))))
+(bind-func yfs_dir_open:[apr_dir_t*,i8*]*
+  (lambda (path)
+    (let ((handle_ref:apr_dir_t** (zalloc)))
+        (apr_dir_open handle_ref path yfs_global_pool)
+        (pref handle_ref 0))))
+
+
+(bind-val APR_ENOENT i32 2)
+
+(bind-func yfs_process_recursive:[bool,i8*,[bool,i8*]*]*
+  (lambda (path proc)
+    (let ((pool:apr_pool_t* (apr_pool_create)))
+        ;(printf "Path is %s\n" path)
+      (cond
+       ((yfs_is_regular_file path)
+        ;(printf "Processing %s\n" path)
+        (proc path)
+        (apr_pool_destroy pool)
+        #t)
+       ((yfs_is_directory path)
+        ;(printf "Descending into %s\n" path)
+        (let* ((dir:apr_dir_t* (yfs_dir_open path))
+               (loop:[bool]*
+                (lambda ()
+                  (let* ((info:apr_finfo_t* (salloc))
+                         (status:apr_status_t (apr_dir_read info (+ APR_FINFO_TYPE APR_FINFO_NAME) dir))
+                         (next_entry:i8* (tref info 14))
+                         (pp:i8** (zalloc)))
+                    (cond
+                     ((= status APR_ENOENT)
+                      ;(printf "\nDone with directory %s\n" path)
+                      (apr_dir_close dir)
+                      #f)
+                     (else
+                      (cond
+                       ((= (pref next_entry 0) (i64toi8 46))
+                        ;(printf "Ignoring hidden directory %s\n" next_entry)
+                        (loop)
+                        #t)
+                       (else
+                        (apr_filepath_merge pp path next_entry APR_FILEPATH_NATIVE pool)
+                        (yfs_process_recursive (@ pp) proc)
+                        (loop)
+                        #t))))))))
+            (loop)
+            (apr_pool_destroy pool)
+            #t))
+         (else
+          ;(printf "Ignoring irregular file %s\n" path)
+          (apr_pool_destroy pool)
+          #f)))))
+                  
+                   
+
+;; (bind-func yfs_process_recursive:[bool,i8*,[bool,i8*]*]*
+;;   (lambda (path proc)
+;;     (if (yfs_is_directory path)
+;;         (let* ((dir:apr_dir_t* (yfs_dir_open path))
+;;                (loop:[bool]*
+;;                 (lambda ()
+;;                   (let* ((info:apr_finfo_t* (salloc))
+;;                          (status:apr_status_t (apr_dir_read info (+ APR_FINFO_TYPE APR_FINFO_NAME) dir)))
+;;                     (printf "Next entry in %s is %s\n" path (tref info 14))
+;;                     (if (not (= status APR_ENOENT))
+;;                         (cond
+;;                          ((= APR_REG (tref info 3))
+;;                           (yfs_process_recursive (tref info 14) proc)
+;;                           (loop)
+;;                           #t)
+;;                          ((= APR_DIR (tref info 3))
+;;                           (if (not (or (= (i64toi32 0) (strcmp (tref info 14) ".")) (= (i64toi32 0) (strcmp (tref info 14) ".."))))
+;;                               (begin
+;;                                 (printf "Descending into %s\n" (tref info 14))
+;;                                 (yfs_process_recursive (tref info 14) proc)))
+;;                           (loop)
+;;                           #t)
+;;                          (else
+;;                           (printf "Ignoring directory %s\n" (tref info 14))
+;;                           (loop)
+;;                           #t))
+;;                         (begin
+;;                           (printf "Finished with branch %s\n" path)
+;;                           #t))))))
+;;           (loop))
+;;         (let* ((info:apr_finfo_t* (salloc))
+;;                (status (apr_stat info path APR_FINFO_TYPE yfs_global_pool)))
+;;           (cond
+;;            ((= APR_REG (tref info 3))
+;;             (printf "Processing file %s   directory? %d\n" path (i1toi32 (yfs_is_directory path)))
+;;             (proc path)
+;;             #t)
+;;            (else
+;;             (printf "Ignoring file %s\n" path)
+;;             #f))))))
+              
+          
+
+(set! *xtmlib-ybot-filesystem-loaded* #t)
 
 
 
-;; (bind-func descend_into_dir:[void,i8*]*
-;;   (lambda (dirpath:i8*)
-;;     (let*
-;;         ((sz:i64 (* 80 4 200))
-;;          (cmd:i8*
-;;           (let ((tmp:i8* (zalloc (+ (strlen dirpath) 5))))
-;;             (strcpy tmp "file ")))
-;;          (f (popen (strcat cmd dirpath) "r"))
-;;          (buf:i8* (salloc sz))
-;;          (reader:[void]*
-;;           (lambda ()
-;;             (let ((c:i64 (i32toi64 (fgetc f))))
-;;               (if (<> c EOF)
-;;                   (begin
-;;                     (printf "%c" (i64toi8 c))
-;;                     (reader))
-;;                   (begin 
-;;                     (printf "\n--------------------------------------------------------\n")
-;;                     void))))))
-;;       (reader))))
-
-;; (descend_into_dir ".")
-
-;; (bind-func walk-dir:[void,i8*]*
-;;   (lambda (dir)
-;;     (file dir)))
-
-
-
-
-
-
-
-
-
-
-
-;;;;;;;;;; Bollocks below ;;;;;;;;
-
-;; load the libsndfile dynamic library
-;(bind-dylib libsndfile
-;  (cond ((string=? (sys:platform) "OSX")
-;         "libsndfile.dylib")
-;        ((string=? (sys:platform) "Linux")
-;         "libsndfile.so")
-;        ((string=? (sys:platform) "Windows")
-;         "libsndfile-1.dll")
-;        (else
-;         (begin (print-with-colors 'red 'default #f (print "Error"))
-;                (print ": unsupported platform ")
-;                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))
-
-
-;(define-macro (os-specific f_osx f_lnx f_win)
-;  `(cond ((string=? (sys:platform) "OSX")
-;         f_osx)
-;        ((string=? (sys:platform) "Linux")
-;         f_lnx)
-;        ((string=? (sys:platform) "Windows")
-;         f_win)
-;        (else
-;         (begin (print-with-colors 'red 'default #f (print "Error"))
-;                (print ": unsupported platform ")
-;                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))
-
-
-;; Already defined in scheme.xtm
-;(define sys:file-path-components
-;  (lambda (file-path)
-;    (let ((base (regex:matched file-path "(.*)[/\\\\](.*)\\.(.*)")))
-;      (and (not (null? base))
-;           (cdr base)))))
-
-;(define sys:file-path-components-nix
-;  (lambda (file-path)
-;    (let ((base (regex:matched file-path "(.*)/(.*)\\.(.*)")))
-;      (and (not (null? base))
-;           (cdr base)))))
-
-;(define sys:file-path-windosify
-;  (lambda (file-path)
-;    (let ((bits (regex:split file-path "/")))
-;      (string-join bits (make-string 1 (integer->char 92))))))
-
-      
-;(sys:file-path-components (string-join (list "Users" "s2805534" "Documents" "splergh.xtm")  (make-string 1 (integer->char 92))))
-
-;(sys:file-path-windosify "C:\\My Documents\\blergh")
-
-;(define sys:file-path-components-nix
-;  (lambda (file-path)
-;    (let ((base (regex:matched file-path "(.*)/(.*)\\.(.*)")))
-;      (and (not (null? base))
-;           (cdr base)))))
-
-;(regex:matched
-; "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/snd\\ file.xtm"
-; "(.*)[/\\\\](.*)\\.(.*)")
-
-;(regex:matched
-; "\\Users\\s2805534\\Documents\\code\\extempore\\extempore-dev\\extempore\\libs\\external\\sndfile.xtm"
-; "(.*)[/\\\\](.*)\\.(.*)")
-
-;(sys:file-path-components-nix "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")
-;(sys:file-path-components-nix "\Users\s2805534\Documents\code\extempore\extempore-dev\extempore\libs\external\sndfile.xtm")
-;(sys:file-path-windosify "/Users/s2805534/Documents/code/extempore/extempore-dev/extempore/libs/external/sndfile.xtm")
-
-
-(set! *xtmlib-ybot-filesystem-loaded* #f)

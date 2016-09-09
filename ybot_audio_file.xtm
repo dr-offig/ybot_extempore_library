@@ -36,14 +36,22 @@
                    (current_read_frame:i64 0))
               (sf_seek audiofile 0 SEEK_SET)
               (lambda (startFrame:i64 frames:i64 channels:i64 output:SAMPLE*)
-                ;(println "Audio file source function called")
                 (sf_seek audiofile startFrame SEEK_SET)
-                ;(println "Before fetching " frames " frames from audiofile")
                 (set! frames_read (sf_readf audiofile output frames))
-                ;(println "After fetching " frames_read " frames from audiofile")
                 (set! current_read_frame (+ current_read_frame frames_read))
-                ;(println "After setting current_read_frame to " current_read_frame)
                 frames_read)))))))
+
+
+(bind-func YbotAudioFileWrite:[audiofile_t,SAMPLE*,i64,i64,i8*]*
+  (lambda (buffer frames channels path)
+    (let ((info:SF_INFO* (zalloc)))
+      (tset! info 0 frames)
+      (tset! info 1 SR)
+      (tset! info 2 channels)
+      (tset! info 3 (or SF_FORMAT_WAV )
+      (audiofile:audiofile_t (sf_open fname SFM_WRITE info))))))
+      
+    
 
 
 ;; (bind-func YbotAudioFileSource_c:[YbotAudioSource_t,i8*]*
@@ -71,6 +79,7 @@
     (let* ((filesource (YbotAudioFileSource_c path))
            (file_channels:i64 (filesource.channels:i64))
            (file_samplerate:SAMPLE (filesource.samplerate))
+           (file_length:i64 (filesource.frames_in_file))
            (bufferedStream:YbotAudioStream* (YbotAudioBufferedStream_c filesource 1000000 file_channels file_samplerate)))
       (printf "%p " bufferedStream)
       (print bufferedStream)
@@ -108,29 +117,48 @@
 ;;        void)))
           
 
-(bind-val hernandez6 YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Music/iTunes/iTunes Media/Music/Absolute Music/Absolute Disco Classics [Disc 1]/1-07 Born To Be Alive.aiff"))
-(bind-val chitchat YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Dropbox/ybot/projects/CascadePortals/leweton/audio/March_16_2016/DinnerPreparation/DinnerPreparation_LR.WAV"))
+;(bind-val hernandez YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Music/iTunes/iTunes Media/Music/Absolute Music/Absolute Disco Classics [Disc 1]/1-07 Born To Be Alive.aiff"))
+;(bind-val chitchat YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Dropbox/ybot/projects/CascadePortals/leweton/audio/March_16_2016/DinnerPreparation/DinnerPreparation_LR.WAV"))
+;(bind-val mono YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/EcoAcoustics2016/mono.wav"))
+(bind-val birds2 YbotAudioStream* (YbotAudioFileStream_c "/Users/s2805534/Dropbox/ybot/projects/A3D/audio/stereo192000.wav"))
+
+
+
+(sys:load "libs/external/audio_dsp_ext.xtm")
+(bind-func convolution_verb1
+  (creverb_st_c
+   "/Library/Audio/Impulse Responses/IRCAM/IRC_1002_C/IRC_1002_C_R0195_T090_P000_L.wav"
+   "/Library/Audio/Impulse Responses/IRCAM/IRC_1002_C/IRC_1002_C_R0195_T090_P000_R.wav")) 
 
 
 ($ (print chitchat))
 
 (bind-func dsp:DSPMC
   (let ((start_time:i64 (now))
-        (player:YbotAudioSource_t (tref chitchat 0)))
+        (player:YbotAudioSource_t (tref birds2 0)))
+    (println FRAMES)
     (lambda (in:float* out:float* time:i64 userData:i8*)
-      (player (- time start_time) FRAMES CHANNELS out)
+      (player (- time start_time) FRAMES 2 out)
+      ;(println time)
+      ;(let ((i:i64 0))
+        ;(dotimes (i FRAMES)
+          ;(pset! out i (dtof (* 0.2 (- (random) 0.5))))))
       void)))
 
 
 (bind-func dsp:DSP
-  (let ((start_time:i64 (now))
-        (player:YbotAudioSource_t (tref chitchat 0))
+  (let ((offset:i64 (now)) (success:i64 0)
+        (player:YbotAudioSource_t (tref birds2 0))
         (out:SAMPLE* (zalloc CHANNELS)))
-    (lambda (in:float time:i64 channel:i64 data:float*)
+     (lambda (in:float time:i64 channel:i64 data:float*)
       (cond
        ((= channel 0)
-        (player (- time start_time) 1 CHANNELS out)))
-      (pref out channel))))
+        (set! success (player (- time offset) 1 (i32toi64 CHANNELS) out))
+        (if (< success 0) (begin (println "looping") (set! offset (now))))
+        void)
+       (else void))
+      (pref out channel)
+      )))
       
 
 ($ (print (dsp.player:YbotAudioSource_t)))
