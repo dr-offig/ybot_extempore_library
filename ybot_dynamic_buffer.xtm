@@ -1,0 +1,263 @@
+(if (and (defined? '*xtmlib-ybot-dynamic-buffer-loaded*) *xtmlib-ybot-dynamic-buffer-loaded*)
+    (sys:load-escape "ybot_dynamic_buffer library already loaded"))
+(define *xtmlib-ybot-dynamic-buffer-loaded* #f)
+
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
+
+
+;; Extra string functions
+(bind-func cstring:[i8*,i8]*
+  (lambda (c)
+    (let ((p:i8* (zalloc 2)))
+      (pset! p 0 c)
+      (pset! p 1 0)
+      p)))
+
+(bind-func to_lower:[i8,i8]*
+  (lambda (c)
+    (if (and (< (i64toi8 64) c) (< c (i64toi8 91)))
+        (+ c (i64toi8 32))
+        c)))
+
+(bind-func to_upper:[i8,i8]*
+  (lambda (c)
+    (if (and (< (i64toi8 96) c) (< c (i64toi8 123)))
+        (- c (i64toi8 32))
+        c)))
+
+
+(bind-func lower:[String*,i8*]*
+  (lambda (cstr)
+    (let* ((i:i64 0) (n:i64 (strlen cstr))
+           (buffer:i8* (zalloc (+ n 1))))
+      (dotimes (i n)
+        (pset! buffer i (to_lower (pref cstr i))))
+      (pset! buffer n 0)
+      (String buffer))))
+        
+
+(bind-func lower:[String*,String*]*
+  (lambda (str:String*)
+    (let ((cstr:i8* (cstring str)))
+    (lower:[String*,i8*]* cstr))))
+    
+
+(bind-func upper:[String*,i8*]*
+  (lambda (cstr)
+    (let* ((i:i64 0) (n:i64 (strlen cstr))
+           (buffer:i8* (zalloc (+ n 1))))
+      (dotimes (i n)
+        (pset! buffer i (to_upper (pref cstr i))))
+      (pset! buffer n 0)
+      (String buffer))))
+
+
+(bind-func upper:[String*,String*]*
+  (lambda (str:String*)
+    (let ((cstr:i8* (cstring str)))
+    (upper:[String*,i8*]* cstr))))
+
+
+(bind-func print_hex:[void,String*]*
+  (lambda (str)
+    (let ((i:i64 0)
+          (n:i64 (length str))
+          (data:i8* (tref str 1)))
+      (dotimes (i (- n 1))
+        (printf "%02X " (pref data i)))
+      (printf "%02X" (pref data (- n 1)))
+      void)))
+
+(bind-func print_sanitised:[void,String*]*
+  (lambda (str)
+    (let ((n:i64 (length str))
+          (data:i8* (tref str 1)))
+      (doloop (i n)
+        (let ((c:i8 (pref data i)))
+          (cond
+           ((< 31:i8 c)
+            (printf "%c" c))
+           (else 
+            (printf "[%02X]" c)))))
+      void)))
+    
+
+
+;; override base.xtm string comparison, so that it doesn't crash on null
+(bind-func equal
+  (lambda (s1:String* s2:String*)
+    (if (or (null? s1) (null? s2))
+        1:i1
+        (if (= (strcmp (tref s1 1) (tref s2 1)) 0)
+            1:i1 0:i1))))
+
+
+
+
+;; StringStreamBuffer:  data, length, capacity
+(bind-type StringStreamBuffer <i8*,i64,i64>)
+(bind-func StringStreamBuffer_c:[StringStreamBuffer*,i64]*
+  (lambda (capacity)
+    (let ((data:i8* (zalloc (+ capacity 1))))
+      (StringStreamBuffer data 0 capacity))))
+          
+(bind-func StringStreamBuffer_c:[StringStreamBuffer*,StringStreamBuffer*,i64]*
+  (lambda (buffer new_capacity)
+    (let* ((data (tref buffer 0))
+          (current_length (tref buffer 1))
+          (current_capacity (tref buffer 2))
+          (capacity (min current_capacity new_capacity))
+          (new_length (min current_length new_capacity))
+          (new_data:i8* (zalloc (+ new_capacity 1)))
+          (new_buffer:StringStreamBuffer* (StringStreamBuffer new_data new_length new_capacity)))
+      (memcpy new_data data capacity)
+      (pset! new_data (+ new_length 1) (i64toi8 0))
+      new_buffer)))
+    
+
+(bind-func SSB:[StringStreamBuffer*,i8*]*
+  (lambda (cstr)
+    (let*
+        ((current_length (strlen cstr))
+         (new_length current_length)
+         (new_capacity current_length)
+         (new_data:i8* (zalloc (+ new_capacity 1)))
+         (new_buffer:StringStreamBuffer* (StringStreamBuffer new_data new_length new_capacity)))
+      (memcpy new_data cstr new_length)
+      (pset! new_data (+ new_length 1) (i64toi8 0))
+      new_buffer)))
+
+
+(bind-func SSB:[StringStreamBuffer*,i8*,i64]*
+  (lambda (cstr new_capacity)
+    (let*
+        ((current_length (strlen cstr))
+         (new_length (min current_length new_capacity))
+         (new_data:i8* (zalloc (+ new_capacity 1)))
+         (new_buffer:StringStreamBuffer* (StringStreamBuffer new_data new_length new_capacity)))
+      (memcpy new_data cstr new_length)
+      (pset! new_data (+ new_length 1) (i64toi8 0))
+      new_buffer)))
+
+
+(bind-func SSB:[StringStreamBuffer*,String*,i64]*
+  (lambda (str new_capacity)
+    (let*
+        ((cstr (cstring str))
+         (current_length (strlen cstr))
+         (new_length (min current_length new_capacity))
+         (new_data:i8* (zalloc (+ new_capacity 1)))
+         (new_buffer:StringStreamBuffer* (StringStreamBuffer new_data new_length new_capacity)))
+      (memcpy new_data cstr new_length)
+      (pset! new_data (+ new_length 1) (i64toi8 0))
+      new_buffer)))
+
+
+(bind-func data:[i8*,StringStreamBuffer*]* (lambda (db:StringStreamBuffer*) (tref db 0)))
+(bind-func data:[i8*,StringStreamBuffer*,i8*]* (lambda (db:StringStreamBuffer* data_in:i8*) (tset! db 0 data_in)))
+(bind-func length:[i64,StringStreamBuffer*]* (lambda (db:StringStreamBuffer*) (tref db 1)))
+(bind-func length:[i64,StringStreamBuffer*,i64]* (lambda (db:StringStreamBuffer* length_in:i64) (tset! db 1 length_in)))
+(bind-func capacity:[i64,StringStreamBuffer*]* (lambda (db:StringStreamBuffer*) (tref db 2)))
+(bind-func capacity:[i64,StringStreamBuffer*,i64]* (lambda (db:StringStreamBuffer* capacity_in:i64) (tset! db 2 capacity_in)))
+(bind-func nth:[i8,StringStreamBuffer*,i64]*
+  (lambda (db:StringStreamBuffer* index:i64)
+    (let ((lngth:i64 (length db))
+          (ptr:i8* (data db)))
+      (cond
+       ((< index lngth) (pref ptr index))
+       (else (i64toi8 0))))))
+
+
+(bind-func write:[StringStreamBuffer*,StringStreamBuffer*,i8]*
+  (lambda (buffer c)
+    (let ((data (tref buffer 0))
+          (current_length (tref buffer 1))
+          (capacity (tref buffer 2)))
+      (cond
+       ((< current_length capacity)
+        (pset! data current_length c)
+        (pset! data (+ current_length 1) (i64toi8 0))
+        (tset! buffer 1 (+ current_length 1))
+        buffer)
+       (else
+        (let* ((new_capacity (* capacity 2))
+               (new_buffer (StringStreamBuffer_c buffer new_capacity))
+               (new_data (tref new_buffer 0)))
+          (pset! new_data current_length c)
+          (pset! new_data (+ current_length 1) (i64toi8 0))
+          (tset! new_buffer 1 (+ current_length 1))
+          new_buffer))))))
+
+
+(bind-func append:[StringStreamBuffer*,StringStreamBuffer*,StringStreamBuffer*]*
+  (lambda (a:StringStreamBuffer* b:StringStreamBuffer*)
+    (let ((i:i64 0)
+          (n:i64 (tref b 1)))
+      (dotimes (i n)
+        (set! a (write a (pref (tref b 0) i))))
+      a)))
+
+
+(bind-func toString:[String*,StringStreamBuffer*]*
+  (lambda (buffer)
+    (String (tref buffer 0))))
+
+(bind-func cstring:[i8*,StringStreamBuffer*]*
+  (lambda (buffer)
+    (tref buffer 0)))
+
+(bind-func nontrivial:[bool,StringStreamBuffer*]*
+  (lambda (buffer)
+    (< 0 (tref buffer 1))))
+
+
+(bind-func reset:[void,StringStreamBuffer*]*
+  (lambda (buffer)
+    ;(memset (tref buffer 0) 0 (tref buffer 2))
+    (tset! buffer 1 0)
+    void))
+
+(bind-func equal:[bool,StringStreamBuffer*,StringStreamBuffer*]*
+  (lambda (a b)
+    (= (i64toi32 0) (strcmp (cstring a) (cstring b)))))
+
+(bind-func equal:[bool,StringStreamBuffer*,i8*]*
+  (lambda (buf cstr)
+    (= (i64toi32 0) (strcmp (cstring buf) cstr))))
+
+(bind-func equal:[bool,StringStreamBuffer*,String*]*
+  (lambda (buf str)
+    (= (i64toi32 0) (strcmp (cstring buf) (cstring str)))))
+
+(bind-func tail:[String*,StringStreamBuffer*,i64]*
+  (lambda (buffer d)
+    (String d (pref-ptr (tref buffer 0) (- (tref buffer 1) d)))))
+
+(bind-func tail_match:[bool,StringStreamBuffer*,String*]*
+  (lambda (buf str)
+    (equal (tail buf (length str)) str)))
+
+(bind-func tail_match:[bool,StringStreamBuffer*,String*,bool]*
+  (lambda (buf str ignore_case)
+    (if ignore_case
+        (equal (lower (tail buf (length str))) (lower str))
+        (equal (tail buf (length str)) str))))
+
+
+;; (bind-func test-tail
+;;   (lambda ()
+;;     (let ((buffer:StringStreamBuffer* (StringStreamBuffer_c 256)) (i:i64 0))
+;;       (dotimes (i 26)
+;;         (set! buffer (write buffer (i64toi8 (+ i 97)))))
+;;       (let ((squibble:String* (tail buffer 6)))
+;;         (printf "\n%s\n" (cstring squibble))
+;;         (print_hex squibble)
+;;         (println "")
+;;         void))))
+      
+;; (test-tail)
+
+(set! *xtmlib-ybot-dynamic-buffer-loaded* #t)

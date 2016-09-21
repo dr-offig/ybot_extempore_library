@@ -1,0 +1,33 @@
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(if (not (defined? '*ybot-lib-dir*))
+   (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_draw.xtm"))
+
+
+;; scopeTraceBuffer:  x values, y values, size,  max_size
+(bind-type scopeTrace <float*,float*,i64,i64>)
+(bind-func scopeTraceFlush:[void,scopeTrace*]*
+  (lambda (trace)
+    (tset! trace 2 0)
+    void))
+
+
+
+
+
+
+(bind-val oscilloscope_buffer SAMPLE* 1024)
+(bind-val oscilloscope_buffer_size i64 1024)
+(bind-val oscilloscope_buffer_block i64 16)
+(bind-func fill_buffer_with_noise:[void,SAMPLE*,i64]*
+  (lambda (buffer size)
+    (let ((i:i64 0))
+      (dotimes (i size)
+        (pset! buffer i (* 0.25 (gaussr))))
+      void)))
+
+
+(bind-val cc i64 0)
+
+($ (fill_buffer_with_noise oscilloscope_buffer 1024))
+($ (set! oscilloscope_buffer_block 16))

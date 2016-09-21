@@ -1,0 +1,722 @@
+(if (and (defined? '*xtmlib-ybot-parser-loaded*) *xtmlib-ybot-parser-loaded*)
+    (sys:load-escape "ybot_parser library already loaded"))
+(define *xtmlib-ybot-parser-loaded* #f)
+
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_filesystem.xtm"))         
+(sys:load (string-append *ybot-lib-dir* "/ybot_dynamic_buffer.xtm"))         
+
+
+;; (bind-func test_nest:[bool,String*]*
+;;   (lambda (a:String*)
+;;     (let* ((q:String* (Str "Toby"))
+;;            (lazy_function:[bool,String*]*
+;;             (lambda (b:String*)
+;;               (let ((diligent_function:[bool,String*]*
+;;                      (lambda (c:String*)
+;;                        (equal c q))))
+;;                 (diligent_function b)))))
+;;       (lazy_function a))))
+
+;; ($ (test_nest null))
+                     
+
+;;;;;;;;;;;;;;;; String parsing utilities ;;;;;;;;;;;;;
+(bind-func first_word:[String*,String*]*
+  (lambda (str)
+    (let ((words (regex_split "[^a-zA-Z0-9]+" str)))
+      (if (non-empty words)
+          (car words)
+          null))))
+ 
+(bind-type BookmarkedStream <apr_file_t*,List{i64}*,bool*>)
+
+(bind-func next:[i8,BookmarkedStream*]*
+  (lambda (stream)
+    (yfs_read_byte (tref stream 0) (tref stream 2))))
+
+
+(bind-func peek:[i8,BookmarkedStream*]*
+  (lambda (stream)
+    (yfs_peek_byte (tref stream 0))))
+
+
+(bind-func goto:[bool,BookmarkedStream*,i64]*
+  (lambda (stream index)
+    (let ((new_index:i64 (yfs_file_seek (tref stream 0) index)))
+      (= new_index index))))
+
+
+(bind-func goto_start:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (goto stream 0)))
+    
+
+(bind-func playhead:[i64,BookmarkedStream*]*
+  (lambda (stream)
+    (yfs_current_playhead (tref stream 0))))
+
+(bind-func push_bookmark:[void,BookmarkedStream*]*
+  (lambda (stream)
+    (tset! stream 1 (cons (playhead stream) (tref stream 1)))
+    void))
+
+(bind-func pop_bookmark:[i64,BookmarkedStream*]*
+  (lambda (stream)
+    (let ((output (car (tref stream 1))))
+      (tset! stream 1 (cdr (tref stream 1)))
+      output)))
+
+
+(bind-func step_back:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (goto stream (- (playhead stream) 1))))
+
+
+(bind-func backtrack:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (cond
+     ((non-empty (tref stream 1))
+      (goto stream (pop_bookmark stream)))
+     (else #f))))
+
+
+(bind-func peek_bookmark:[i64,BookmarkedStream*]*
+  (lambda (stream)
+    (car (tref stream 1))))
+
+
+(bind-func end_of_stream:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (@ (tref stream 2))))
+
+
+(bind-func print:[void,BookmarkedStream*]*
+  (lambda (stream)
+    (let ((sorted:List{i64}* (sort (tref stream 1) null (lambda (a:i64 b:i64) (< a b)))))
+      (goto stream 0)
+      (let ((loop:[void,i64,List{i64}*]*
+             (lambda (index:i64 marks:List{i64}*)
+               ;(println "Index: " index)
+               (cond
+                ((end_of_stream stream) void)
+                (else
+                 (cond
+                  ((and (non-empty marks) (= index (car marks)))
+                   (highlighter "white")
+                   (colour_pencil "black")
+                   (printf "%c" (next stream))
+                   (loop (+ index 1) (cdr marks)))
+                  (else
+                   (highlighter "normal")
+                   (printf "%c" (next stream))
+                   (loop (+ index 1) marks))))))))
+        (loop 0 sorted)))))
+
+
+;; (bind-func test-stream:[void,i8*]*
+;;   (lambda (path)
+;;     (let* ((eof:bool* (zalloc))
+;;            (file:apr_file_t* (yfs_open path))
+;;            (stream:BookmarkedStream* (BookmarkedStream file null eof))
+;;            (i:i64 0) (j:i64 0) (k:i64 0) (n:i64 0))
+;;       (dotimes (i 12)
+;;         (next stream))
+;;       (push_bookmark stream)
+;;       (dotimes (j 26)
+;;         (next stream))
+;;       (push_bookmark stream)
+;;       (dotimes (k 32)
+;;         (next stream))
+;;       (push_bookmark stream)
+;;       (print stream)
+;;       (println "")
+;;       (yfs_close file)
+;;       void)))
+
+
+;; (test-stream "papers/0086/index.html")
+
+
+
+
+
+
+
+;;;;;;;;;;;;;;; HTML Stuff ;;;;;;;;;;;;;;;;;
+
+;; HTML Tag: label, parent, children, attributes, contents, _properties
+;; use 'opaque' i8* for List{HTMLTag*}*
+(bind-type HTMLTag <String*,HTMLTag*,i8*,List{Pair{String*,String*}*}*,StringStreamBuffer*,i8> (constructor? . #f) (printer? . #f))
+
+;; provide our own constructor - hide i8* with 'hidden' cast from List{HTMLTag*}* 
+(bind-func HTMLTag:[HTMLTag*,String*,HTMLTag*,List{HTMLTag*}*,List{Pair{String*,String*}*}*,StringStreamBuffer*,i8]*
+  (lambda (label parent children attributes contents properties)
+    (let ((tag:HTMLTag* (alloc)))
+      (tfill! tag label parent (cast children i8*) attributes contents properties)
+      tag)))
+
+;; getters and setters 
+(bind-func label (lambda (tag:HTMLTag*) (tref tag 0)))
+(bind-func label (lambda (tag:HTMLTag* label_in:String*) (tset! tag 0 label_in)))
+(bind-func parent (lambda (tag:HTMLTag*) (tref tag 1)))
+(bind-func parent (lambda (tag:HTMLTag* parent_in:HTMLTag*) (tset! tag 1 parent_in)))
+(bind-func children (lambda (tag:HTMLTag*) (cast (tref tag 2) List{HTMLTag*}*)))
+(bind-func children (lambda (tag:HTMLTag* children_in:List{HTMLTag*}*) (cast (tset! tag 2 (cast children_in i8*)) List{HTMLTag*}*)))
+(bind-func attributes (lambda (tag:HTMLTag*) (tref tag 3)))
+(bind-func attributes (lambda (tag:HTMLTag* attrs_in:List{Pair{String*,String*}*}*) (tset! tag 3 attrs_in)))
+(bind-func contents (lambda (tag:HTMLTag*) (tref tag 4)))
+(bind-func contents (lambda (tag:HTMLTag* contents_in:StringStreamBuffer*) (tset! tag 4 contents_in)))
+(bind-func properties (lambda (tag:HTMLTag*) (tref tag 5)))
+(bind-func properties (lambda (tag:HTMLTag* properties_in:i8) (tset! tag 5 properties_in)))
+
+;; helpers
+(bind-func void_element (lambda (tag:HTMLTag*) (= (& (properties tag) #x1) #x1)))
+(bind-func set_void_element (lambda (tag:HTMLTag*) (properties tag (bor (properties tag) #x1))))
+(bind-func push_attribute (lambda (tag:HTMLTag* attr:Pair{String*,String*}*) (attributes tag (cons attr (attributes tag)))))
+(bind-func pop_attribute (lambda (tag:HTMLTag*) (let ((attr (car (attributes tag)))) (attributes tag (cdr (attributes tag))) attr)))
+(bind-func add_child (lambda (tag:HTMLTag* child:HTMLTag*) (children tag (cons child (children tag)))))
+
+
+
+;; (bind-val htmlTagOpen i8 (i64toi8 60))
+;; (bind-val htmlTagClose i8 (i64toi8 62))
+;; (bind-val htmlTagSlash i8 (i64toi8 47))
+;; (bind-val htmlTagEscape i8 (i64toi8 37))
+;; (bind-val htmlTagSeparator i8 (i64toi8 32))
+;; (bind-val htmlTagEquals i8 (i64toi8 61))
+;; (bind-val htmlTagDoubleQuote i8 (i64toi8 34))
+;; (bind-val ybotHtmlPlaceHolder i8 (i64toi8 26))
+
+(bind-val htmlOpenAngleBracket i8 (i64toi8 60))
+(bind-val htmlCloseAngleBracket i8 (i64toi8 62))
+(bind-val htmlBackSlash i8 (i64toi8 92))
+(bind-val htmlForwardSlash i8 (i64toi8 47))
+(bind-val htmlSpace i8 (i64toi8 32))
+(bind-val htmlEquals i8 (i64toi8 61))
+(bind-val htmlDoubleQuote i8 (i64toi8 34))
+(bind-val htmlTab i8 (i64toi8 11))
+(bind-val htmlCarriageReturn i8 (i64toi8 13))
+(bind-val htmlLineFeed i8 (i64toi8 12))
+(bind-val ybotHtmlPlaceHolder i8 (i64toi8 26))
+
+
+(bind-func print_shallow:[void,HTMLTag*,i64]*
+  (lambda (tag depth)
+    (if (non-null tag)
+        (let* ((i:i64 0)
+               (name:String* (label tag))
+               (attr:List{Pair{String*,String*}*}*  (attributes tag))
+               (cntnts:String* (toString (contents tag))))
+          ;;(printf "%p " tag) 
+          (dotimes (i depth)
+            (printf "\t"))
+          (printf "<%s" (cstring (label tag)))
+          (let ((attr_printer:[void,Pair{String*,String*}*]*
+                 (lambda (a:Pair{String*,String*}*)
+                   (if (non-null (first a)) (printf " %s" (cstring (first a))))
+                   (if (non-null (second a)) (printf "=%s" (cstring (second a))))
+                   void)))
+            (for-each attr_printer (reverse attr)))
+          (printf ">")
+          (if (not (void_element tag))
+              (begin
+                (if (nontrivial (contents tag))
+                    (begin
+                      (highlighter "black")
+                      (print_sanitised (toString (contents tag)))
+                      (highlighter "normal"))))))
+        (begin
+          (printf "NULL TAG")
+          void))
+      void))
+      
+(bind-func print_deep:[void,HTMLTag*,i64]*
+  (lambda (tag depth)
+    (cond
+     ((non-null tag)
+      (print_shallow tag depth)
+      (printf "\n")
+      (for-each (lambda (child) (print_deep child (+ depth 1))) (reverse (children tag)))
+      (if (not (void_element tag))
+          (begin
+            (doloop (i depth)
+              (printf "\t"))
+            (printf "</%s>\n" (cstring (label tag)))))
+      void)
+     (else void))))
+
+
+(bind-func print:[void,HTMLTag*]*
+  (lambda (tag) (cond ((non-null tag) (print_deep tag 0)) (else void))))
+      
+
+
+;; Contexts - We are always inside some element
+;; Inside tag 
+;; -- in label
+;;    -- in literal
+;;    -- else
+;; -- in attributes
+;;    -- in literal
+;;    -- else
+;; -- else
+
+;; Context encoding
+(bind-val HTML_TAG_CONTENT i8                       (binary "00000000"))
+(bind-val HTML_TAG_LABEL i8                             (binary "00000001"))
+(bind-val HTML_TAG_ATTRIBUTE_NAME i8        (binary "00000010"))
+(bind-val HTML_TAG_ATTRIBUTE_VALUE i8       (binary "00000100"))
+(bind-val HTML_TAG_LITERAL i8                          (binary "00001000"))
+(bind-val HTML_TAG_ESCAPE i8                          (binary "00010000"))
+(bind-val HTML_TAG_END_LABEL i8                    (binary "00100000"))
+(bind-val HTML_TAG_FRESH i8                             (binary "01000000"))
+
+(bind-func name_of_state:[String*,i8]*
+  (lambda (state:i8)
+    (cond
+     ((= state (binary "00000000")) (String "content"))
+     ((= state (binary "00000001")) (String "label"))
+     ((= state (binary "00000010")) (String "attribute_name"))
+     ((= state (binary "00000100")) (String "attribute_value"))
+     ((= state (binary "00001000")) (String "literal"))
+     ((= state (binary "00010000")) (String "escape"))
+     ((= state (binary "00100000")) (String "end_label"))
+     ((= state (binary "01000000")) (String "fresh"))
+     (else (String "unknown")))))
+     
+
+;;(bind-type HTMLTag <String*,HTMLTag*,i8*,List{Pair{String*,String*}*}*,StringStreamBuffer*,i8> (constructor? . #f) (printer? . #f))
+(bind-alias parser_t [bool,BookmarkedStream*,HTMLTag*,StringStreamBuffer*,[bool,i8]*)
+
+(bind-type HTMLParseContext <HTMLTag*,parser_t,StringStreamBuffer*,[bool,i8]*,i8>)
+
+;; (bind-func print:[void,HTMLParseContext*]*
+;;   (lambda (context:HTMLParseContext*)
+;;     (let ((tag:HTMLTag* (tref context 0)))
+;;       (printf "Tag: ")
+;;       (print tag)
+;;       (printf "\nState: %d" (i8toi64 (tref context 4)))
+;;     void)))
+(bind-func print_context:[void,HTMLParseContext*]*
+  (lambda (ctxt)
+    (let ((state:i8 (tref ctxt 4))
+          (buffer:StringStreamBuffer* (tref ctxt 2))
+          (tag:HTMLTag* (tref ctxt 0)))
+       (printf "State: %s \tTag: " (cstring (name_of_state state)))
+       (print_shallow tag 0)
+       (print_sanitised (toString buffer))
+       (printf "\n")
+       void)))
+
+
+(bind-func print_context_stack:[void,List{HTMLParseContext*}*]*
+  (lambda (stack)
+    (for-each print_context stack)))
+
+
+
+(bind-func parse_html_stream:[HTMLTag*,BookmarkedStream*]*
+  (lambda (stream:BookmarkedStream*)
+    (let* ((char_reader:[bool,BookmarkedStream*,HTMLTag*,StringStreamBuffer*,[bool,i8]*]*
+            (lambda (stream tag buffer condition)
+              (cond
+               ((not (end_of_stream stream))
+                (let* ((c:i8 (next stream)))
+                  (highlighter "red") (printf "%c" c) (highlighter "normal")
+                  (cond
+                   ((condition c)
+                    (printf "\n --- exiting local parser on encountering %c\n" c)
+                    (step_back stream) #t)
+                   (else
+                    (set! buffer (write buffer c))
+                    (char_reader stream tag buffer condition)))))
+               (else #f))))
+           (main_buffer:StringStreamBuffer* (StringStreamBuffer_c 2048))
+           (context_stack_ref:List{HTMLParseContext*}** (halloc))
+           (current_tag:[HTMLTag*]* (lambda () (if (empty (@ context_stack_ref)) null (tref (car (@ context_stack_ref)) 0))))
+           (current_parser:[parser_t]* (lambda () (if (empty (@ context_stack_ref)) char_reader (tref (car (@ context_stack_ref)) 1))))
+           (current_buffer:[StringStreamBuffer*]* (lambda () (if (empty (@ context_stack_ref)) null (tref (car (@ context_stack_ref)) 2))))
+           (current_condition:[[bool,i8]*]* (lambda () (if (empty (@ context_stack_ref)) (lambda (c:i8) #f) (tref (car (@ context_stack_ref)) 3))))
+           (current_state:[i8]* (lambda () (if (empty (@ context_stack_ref)) (binary "10000000") (tref (car (@ context_stack_ref)) 4))))
+           (set_current_state:[i8,i8]* (lambda (state_in) (if (empty (@ context_stack_ref)) (binary "10000000") (tset! (car (@ context_stack_ref)) 4 state_in))))
+
+           (pop:[HTMLParseContext*]*
+            (lambda ()
+              (cond
+               ((non-empty (@ context_stack_ref))
+                (printf "--------------\nPopping context from stack\n")
+                (highlighter "black")
+                (print_context_stack (@ context_stack_ref))
+                (printf "\n")
+                (highlighter "normal")
+                (let ((context:HTMLParseContext* (car (@ context_stack_ref))))
+                  ;; (if (non-null context) (print_context context) (println " but the popped context is null"))
+                  (pset! context_stack_ref 0 (cdr (@ context_stack_ref)))
+                  ;; (printf "The popped context is:\n")
+                  ;; (print_context context)
+                  ;; (printf "and the context stack is now:\n")
+                  ;; (highlighter "black")
+                  ;; (print_context_stack context_stack)
+                  ;; (highlighter "normal")
+                  context))
+               (else
+                (println "Tried to pop the context stack but it is empty\n")
+                null))))
+
+
+           (push:[List{HTMLParseContext*}*,HTMLParseContext*]*
+            (lambda (context)
+              (printf "-------------\nPushing context:\n")
+              (print_context context)
+              (printf "onto stack:\n")
+              (highlighter "black")
+              (print_context_stack (@ context_stack_ref))
+              (highlighter "normal")
+              (pset! context_stack_ref 0 (cons context (@ context_stack_ref)))
+              ;; (highlighter "normal")
+              ;; (printf "Stack is now:\n")
+              ;; (highlighter "black")               
+              ;; (print_context_stack context_stack)
+              ;; (highlighter "normal")
+              (@ context_stack_ref)))
+
+           (keep_parsing:[bool]*
+            (lambda ()
+              (printf "... resuming parsing of tag %s in state %s ... \n" (cstring (label (current_tag))) (cstring (name_of_state (current_state))))
+              (char_reader stream (current_tag) (current_buffer) (current_condition))))
+           
+           (html_literal_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlDoubleQuote))))
+           
+           (html_content_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlOpenAngleBracket htmlDoubleQuote))))
+
+           (html_label_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlCloseAngleBracket htmlForwardSlash htmlSpace htmlDoubleQuote))))
+
+           (html_end_label_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlCloseAngleBracket))))
+
+           (html_attribute_value_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlCloseAngleBracket htmlForwardSlash htmlDoubleQuote htmlSpace))))
+
+           (html_attribute_name_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlCloseAngleBracket htmlForwardSlash htmlDoubleQuote htmlSpace htmlEquals))))
+              
+           (html_contents_cond:[bool,i8]*
+            (lambda (c)
+              (contains c (list htmlOpenAngleBracket htmlForwardSlash))))
+           
+           (burnin_loop:[HTMLTag*]*
+            (lambda ()
+              (cond
+               ((not (end_of_stream stream))
+                (let ((c:i8 (next stream)))
+                  (highlighter "red") (printf "%c" c) (highlighter "normal")
+                  (set! main_buffer (write main_buffer c))
+                  (cond
+                     ((tail_match main_buffer (String "<HTML>"))
+                      (let ((root:HTMLTag* (HTMLTag (String "HTML") null null null (StringStreamBuffer_c 256) (binary "00000000"))))
+                        root))
+                     (else
+                      (burnin_loop)))))
+                (else
+                 null))))
+           
+           (skip_whitespace:[bool]*
+            (lambda ()
+              (cond
+               ((not (end_of_stream stream))
+                (let ((d:i8 (peek stream)))
+                  (cond
+                   ((or (= d htmlSpace) (= d htmlTab) (= d htmlCarriageReturn) (= d htmlLineFeed))
+                    (highlighter "red") (printf "%c" (i64toi8 46)) (highlighter "normal")
+                    (next stream)
+                    (skip_whitespace))
+                   (else #t))))
+               (else #f))))
+           
+          (parse_tag_recursive:[HTMLTag*,HTMLTag*]*
+           (lambda (tag)
+             (cond
+              ((end_of_stream stream)
+               ;; (highlighter "black") (println "Done") (highlighter "normal")
+               tag)
+              ((null? tag)
+                (println "Cannot parse a null tag")
+                null)
+              ((not (non-empty (@ context_stack_ref)))
+                (println "Empty context stack")
+                tag)
+              ((null? (current_tag))
+               (println "No current tag on the context stack")
+               tag)
+              (else     
+                 (cond ;; 1a
+                  ((= (current_state) HTML_TAG_LITERAL)
+                   (printf "Stopped in state HTML_TAG_LITERAL\n")
+                   (pop) ;; return to previous state (before literal was entered)
+                   (highlighter "red") (printf "%c" htmlDoubleQuote) (highlighter "normal")
+                   (next stream) ;; discard the double quote character
+                   ;; (printf "Popping out of literal state back to state %lld\n" (i8toi64 (current_state)))
+                   (if (keep_parsing) (parse_tag_recursive tag) tag))
+
+                  ((= (current_state) HTML_TAG_FRESH)
+                   (printf "Stopped in state HTML_TAG_FRESH\n")
+                   (set_current_state HTML_TAG_LABEL)
+                   (if (keep_parsing) (parse_tag_recursive tag) tag))
+                   
+                  ((= (current_state) HTML_TAG_LABEL)
+                   (printf "Stopped in state HTML_TAG_LABEL\n")
+                   (label tag (toString (current_buffer)))
+                   (cond
+                    ((contains (upper (label tag))
+                               (list (Str "LINK") (Str "BR") (Str "IMG") (Str "IMAGE") (Str "LI")))
+                     (printf "Marking tag %s as void\n" (cstring (label tag)))
+                     (set_void_element tag))
+                    (else
+                     (printf "Tag %s should not be void\n" (cstring (label tag)))
+                     (properties tag)))
+                   (skip_whitespace)
+                   (let ((c (next stream)))
+                     (cond ;; 2a
+                      ((= c htmlForwardSlash)
+                       (let ((d (peek stream)))
+                         (cond ;; 3a
+                          ((= d htmlCloseAngleBracket)
+                           ;;(printf "Closed tag: <%s />\n" (cstring (label tag)))
+                           (highlighter "red") (printf "%c" d) (highlighter "normal")
+                           (next stream) ;; discard the ">" character
+                           (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag))))) 
+                          ((regex_match "\\w" (Str (cstring d))) (pop)
+                           (printf "Ignored unexpected slash character in tag %s\n" (label tag))
+                           (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_attribute_name_cond HTML_TAG_ATTRIBUTE_NAME))
+                           (if (keep_parsing) (parse_tag_recursive tag) tag))
+                          (else ;; 3a
+                           (printf "WTF? At 3a found %c in %s\n" d (label tag))
+                           tag))))
+                      ((= c htmlCloseAngleBracket)
+                       (cond
+                        ((void_element tag)
+                         (printf "Closing void element %s\n" (cstring (label tag)))
+                         (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag)))))
+                        (else
+                         (printf "Element %s should not be void, has property flag %x\n" (cstring (label tag)) (properties tag)) 
+                         (pop)
+                         (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_contents_cond HTML_TAG_CONTENT))
+                         (if (keep_parsing) (parse_tag_recursive tag) tag))))
+                      (else
+                       (pop)
+                       (push (HTMLParseContext tag char_reader (SSB (cstring c) 256) html_attribute_name_cond HTML_TAG_ATTRIBUTE_NAME))
+                       (if (keep_parsing) (parse_tag_recursive tag) tag)))))
+       
+                  ((= (current_state) HTML_TAG_ATTRIBUTE_NAME)
+                   (printf "Stopped in state HTML_TAG_ATTRIBUTE_NAME\n")
+                   (let ((attr:Pair{String*,String*}* (Pair (toString (current_buffer)) null))
+                         (c (next stream)))
+                     (push_attribute tag attr)
+                     (cond ;; 2b
+                      ((= c htmlDoubleQuote) (push (HTMLParseContext tag char_reader (current_buffer) html_literal_cond HTML_TAG_LITERAL))
+                       (if (keep_parsing) (parse_tag_recursive tag) tag))
+                      ((= c htmlEquals) (pop)
+                       (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_attribute_value_cond HTML_TAG_ATTRIBUTE_VALUE))
+                       (if (keep_parsing) (parse_tag_recursive tag) tag))
+                      ((= c htmlForwardSlash)
+                       (let ((d (peek stream)))
+                         (cond ;; 3b
+                          ((= d htmlCloseAngleBracket)
+                           ;;(printf "Closed tag: <%s />\n" (cstring (label tag)))
+                           (highlighter "red") (printf "%c" d) (highlighter "normal")
+                           (next stream) ;; discard the ">" character
+                           (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag)))))
+                          ((regex_match "\\w" (Str (cstring d))) (pop)
+                           (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_attribute_value_cond HTML_TAG_ATTRIBUTE_VALUE))
+                           (if (keep_parsing) (parse_tag_recursive tag) tag))
+                          (else ;; 3b
+                           (printf "WTF? At 3b found %c in %s\n" d (label tag))
+                           tag))))
+                      ((= c htmlCloseAngleBracket)
+                       (cond
+                        ((void_element tag)
+                         (printf "Closing void element %s\n" (cstring (label tag)))
+                         (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag)))))
+                        (else
+                         (printf "Element %s should not be void, has property flag %x\n" (cstring (label tag)) (properties tag)) 
+                         (pop)
+                         (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_contents_cond HTML_TAG_CONTENT))
+                         (if (keep_parsing) (parse_tag_recursive tag) tag))))
+                      (else ;; 2b
+                       (printf "2b. Unexpected character %c in tag %s\n" c (label tag))
+                       (next stream) (parse_tag_recursive tag)))))
+
+                  ((= (current_state) HTML_TAG_ATTRIBUTE_VALUE)
+                   (printf "Stopped in state HTML_TAG_ATTRIBUTE_VALUE\n")
+                   (let ((attr:Pair{String*,String*}* (pop_attribute tag))
+                         (c (next stream)))
+                     (push_attribute tag (Pair (first attr) (toString (current_buffer))))
+                     (cond ;; 2c
+                      ((= c htmlDoubleQuote) (push (HTMLParseContext tag char_reader (current_buffer) html_literal_cond HTML_TAG_LITERAL))
+                       (if (keep_parsing) (parse_tag_recursive tag) tag))
+                      ((= c htmlForwardSlash)
+                       (let ((d (peek stream)))
+                         (cond ;; 3c
+                          ((= d htmlCloseAngleBracket)
+                           (pop)
+                           ;; (printf "Closed tag: <%s />\n" (cstring (label tag)))
+                           (highlighter "red") (printf "%c" d) (highlighter "normal")
+                           (next stream) ;; discard the ">" character
+                           (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag)))))
+                          ((regex_match "\\w" (Str (cstring d)))
+                           (pop)
+                           (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_attribute_name_cond HTML_TAG_ATTRIBUTE_NAME))
+                           (if (keep_parsing) (parse_tag_recursive tag) tag))
+                          (else ;; 3c
+                           (printf "WTF? At 3b found %c in %s\n" d (label tag))
+                           tag))))
+                      ((= c htmlCloseAngleBracket)
+                       (cond
+                        ((void_element tag)
+                         (printf "Closing void element %s\n" (cstring (label tag)))
+                         (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag)))))
+                        (else
+                         (printf "Element %s should not be void, has property flag %x\n" (cstring (label tag)) (properties tag)) 
+                         (pop)
+                         (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_contents_cond HTML_TAG_CONTENT))
+                         (if (keep_parsing) (parse_tag_recursive tag) tag))))
+                      ((= c htmlSpace)
+                       (pop)
+                       (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_attribute_name_cond HTML_TAG_ATTRIBUTE_NAME))
+                       (if (keep_parsing) (parse_tag_recursive tag) tag))
+                      (else ;; 2c
+                       (printf "2c. Unexpected character %c in tag %s\n" c (label tag))
+                       (next stream) (parse_tag_recursive tag)))))
+
+                  ((= (current_state) HTML_TAG_CONTENT)
+                   (printf "Stopped in state HTML_TAG_CONTENT\n")
+                   (if (end_of_stream stream) tag
+                       (let ((c (next stream)))
+                         (cond ;; 2d
+                          ((= c htmlDoubleQuote) (push (HTMLParseContext tag char_reader (current_buffer) html_literal_cond HTML_TAG_LITERAL))
+                           (if (keep_parsing) (parse_tag_recursive tag) tag))
+                          ((= c htmlOpenAngleBracket)
+                           (printf "Found opening angle bracket, now disambiguating by peeking at next character: ")
+                           (let ((d (peek stream)))
+                             (printf "%c\n" d)
+                             (cond ;; 3d 
+                              ((= d htmlForwardSlash) ;; this is an ending tag so finalise the content
+                               (contents tag (current_buffer))
+                               (pop)
+                               (highlighter "red") (printf "%c" d) (highlighter "normal")
+                               (next stream) ;; discard slash
+                               (push (HTMLParseContext tag char_reader (StringStreamBuffer_c 256) html_end_label_cond HTML_TAG_END_LABEL))
+                               (if (keep_parsing) (parse_tag_recursive tag) tag))
+                              (else ;; 3d  --  a child is born!
+                               (printf "A child is born\n") 
+                               (let ((child:HTMLTag* (HTMLTag (String "tba") tag null null (StringStreamBuffer_c 256) (binary "00000000"))))
+                                 (add_child tag child)
+                                 (push (HTMLParseContext child char_reader (StringStreamBuffer_c 256) html_label_cond HTML_TAG_FRESH))
+                                 (parse_tag_recursive child)
+                                 (if (keep_parsing) (parse_tag_recursive tag) tag))))))
+                          (else ;; 2d  --  may have returned from parsing a child tag
+                           ;; (printf "If you see this message, check out what is going on\n")
+                           (if (keep_parsing) (parse_tag_recursive tag) tag))))))
+
+                  ((= (current_state) HTML_TAG_END_LABEL)
+                   (printf "Stopped in state HTML_END_LABEL\n")
+                   (cond ;; 2e1 
+                    ((equal (label tag) (toString (current_buffer)))
+                     (cond ;; 3e1
+                      ((end_of_stream stream) tag)
+                      (else ;; 3e1
+                       (skip_whitespace)
+                       (let ((c (next stream)))
+                         (cond ;; 4e1
+                          ((= c htmlCloseAngleBracket)
+                           ;; (printf "Closed tag: <%s />\n" (cstring (label tag)))
+                           (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag)))))
+                          (else ;; 4e1
+                           (printf "4e1. Unexpected character %c in tag %s\n" c (label tag))
+                           (cond ((null? (parent tag)) tag) (else (pop) (parse_tag_recursive (parent tag))))))))))
+                    (else ;; 2e1
+                     (printf "Closing tag mismatch: Found </%s> whilst parsing content of <%s>\n" (cstring (current_buffer)) (cstring (label tag)))
+                     (let* ((match_loop:[HTMLTag*,HTMLTag*,String*]*
+                             (lambda (tag name)
+                               (printf "Called match loop with context stack at address %p" (@ context_stack_ref 0))
+                               tag))
+                     ;;           (if (non-null tag) (printf " with Tag: %s" (cstring (label tag))))
+                     ;;           (if (non-null tag) (printf " with Name: %s" (cstring name)))
+                     ;;           (printf "\n")
+                     ;;           (cond ;; 3e2
+                     ;;            ((null? tag) (printf "debug1\n") null)
+                     ;;           (else (printf "debug2\n") ;; 3e2
+                     ;;            (cond ;; 4e2
+                     ;;             ((equal name (label tag)) tag)
+                     ;;             (else (printf "debug3\n") ;; 4e2
+                     ;;              (cond ;; 5e1
+                     ;;               (#f   ;;(empty context_stack)
+                     ;;                (printf "debug3b\n") tag)
+                     ;;               (else
+                     ;;                (printf "debug4\n") ;; 5e1
+                     ;;                (pop)
+                     ;;                (printf "debug5\n")
+                     ;;                (cond ;; 6e1
+                     ;;                 ((null? (current_tag)) null)
+                     ;;                 (else (printf "debug6\n") ;; 6e1
+                     ;;                  (match_loop (current_tag) name)))))))))))
+                            (matching_tag (match_loop tag (toString (current_buffer)))))
+                       (printf "Matching tag is %p\n" (cast matching_tag i8*))
+                       ;; (cond ;; 3e3
+                       ;;  ((null? matching_tag)
+                       ;;   (printf "Badly formed HTML. No matching start tag found for close tag %s\n" (cstring (label tag)))
+                       ;;   tag)
+                       ;;  (else ;; 3e3
+                       ;;   (printf "Found matching tag: %s\n" (cstring (label matching_tag)))
+                       ;;   (cond ;; 4e3
+                       ;;    ((null? (current_buffer))
+                       ;;     (printf "Something went wrong, couldn't close down matched tag %s\n" (cstring (label matching_tag)))
+                       ;;     matching_tag)
+                       ;;    (else ;; 4e3
+                       ;;     (contents matching_tag (current_buffer))
+                       ;;     (cond ((null? (parent matching_tag)) matching_tag) (else (pop) (parse_tag_recursive (parent matching_tag)))))))))
+                       tag))))
+                  (else (printf "Must have forgotten something.\n") tag)))))))
+      (let ((doc:HTMLTag* (burnin_loop)))
+        ;; (println "\n\n Starting parsing from tag: ")
+        ;; (print doc)
+        (pset! context_stack_ref 0 null)
+        (push (HTMLParseContext doc char_reader (StringStreamBuffer_c 256) html_content_cond HTML_TAG_CONTENT))
+        (if (keep_parsing)
+            (parse_tag_recursive doc)
+            doc)
+        ))))
+
+
+(bind-func parse_html_file:[HTMLTag*,i8*]*
+  (lambda (path)
+    (let ((file (yfs_open path)))
+      (if (non-null file)
+          (let* ((eof:bool* (zalloc))
+                 (stream:BookmarkedStream* (BookmarkedStream file null eof)))
+            (let ((output:HTMLTag* (parse_html_stream stream)))
+              (highlighter "white") (colour_pencil "black")
+              (printf "________________________________________________\n\n")
+              (highlighter "normal")
+              (colour_pencil "normal")
+              (if (non-null output) (print output))
+              (yfs_close file)
+              output))
+          null))))
+
+
+(parse_html_file "papers/0086/index.html")
+        
+(set! *xtmlib-ybot-parser-loaded* #t)

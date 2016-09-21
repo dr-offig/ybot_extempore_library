@@ -142,9 +142,34 @@
 ;      shiftArray)))
 
 
+;; Generic tree: data, parent, children (opaque i8* hiding List{YTree*}*)
+(bind-type YTree <!a,YTree*,i8*>)
+
+(bind-func YTree:[YTree*,!a,YTree*,List{YTree*}]*
+  (lambda (data parent children)
+    (let ((root:YTree* (alloc)))
+      (tfill! root data parent (cast children i8*))
+      root)))
+
+(bind-func data:[!a,YTree*]* (lambda (tree:YTree*) (tref tree 0)))
+(bind-func data:[!a,YTree*,!a]* (lambda (tree:YTree* data_in) (tset! tree 0 data_in)))
+(bind-func parent:[YTree*,YTree*]* (lambda (tree:YTree*) (tref tree 1)))
+(bind-func parent:[YTree*,YTree*,YTree*]* (lambda (tree:YTree* parent_in:YTree*) (tset! tree 1 parent_in)))
+(bind-func children:[List{YTree*}*,YTree*]* (lambda (tree:YTree*) (cast (tref tree 2) List{YTree*}*)))
+(bind-func children:[List{YTree*}*,YTree*,List{YTree*}*]* (lambda (tree:YTree* children_in:List{YTree*}*) (cast (tset! tag 2 (cast children_in i8*)) List{YTree*}*)))
+
+(bind-func satisfies:[List{YTree*}*,YTree*,[bool,YTree*]*]*
+  (lambda (root condition)
+    (flatten
+     (map
+      (lambda (child)
+        (if (condition child)
+            (cons child (satisfies child condition))
+            (satisfies child condition)))
+      (children root)))))
 
 
-;; (bind-type YTree <!a,YTree*,YTree*,i64>)
+
 
 ;; (bind-func test_i64_ytree:[YTree:<i64,YTree*,YTree*,i64>*]*
 ;;   (lambda ()

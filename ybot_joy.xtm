@@ -1,0 +1,6 @@
+(bind-func compose:[[!c,!a]*,[!c,!b]*,[!b,!a]*]*
+  (lambda (f g)
+    (lambda (x) (f (g x)))))
+
+
+

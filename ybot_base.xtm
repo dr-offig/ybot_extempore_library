@@ -1,0 +1,122 @@
+;; Include guard
+(if (and (defined? '*xtmlib-ybot-base-loaded*) *xtmlib-ybot-base-loaded*)
+    (sys:load-escape "ybot_base library already loaded"))
+(define *xtmlib-ybot-base-loaded* #f)
+
+;; External dependancies
+(sys:load "libs/core/adt.xtm")
+
+(bind-macro (@ . args)
+            `(pref ,(car args) 0))
+
+(bind-func non-null:[bool,i8*]*
+  (lambda (p)
+    (not (null? p))))
+
+(bind-func non-null:[bool,!a]*
+  (lambda (p)
+    (not (null? (cast p i8*)))))
+
+(bind-func non-empty:[bool,List{!a}*]*
+  (lambda (lst)
+    (and (non-null lst) (< 0 (length lst)))))
+
+(bind-func empty:[bool,List{!a}*]*
+  (lambda (lst)
+    (or (null? lst) (= 0 (length lst)))))
+
+
+
+(bind-func binary:[i8,i8*]*
+  (lambda (digits)
+    (let ((n:i64 (strlen digits))
+          (loop
+           (lambda (cc:i64 b:i8)
+             (cond
+              ((< cc (min n 8))
+               (cond
+                ((= (pref digits (- (- n 1) cc)) (i64toi8 49))
+                 (loop (+ cc 1) (+ b (i64toi8 (<< 1 cc)))))
+                (else
+                 (loop (+ cc 1) b))))
+              (else
+               b)))))
+      (loop 0 0))))
+               
+
+
+(bind-func colour_pencil:[void,i8*]*
+  (lambda (name)
+  (let ((n:i8
+         (cond
+          ((= (i64toi32 0) (strcmp name "black")) (i64toi8 30))
+          ((= (i64toi32 0) (strcmp name "red")) (i64toi8 31))
+          ((= (i64toi32 0) (strcmp name "green")) (i64toi8 32))
+          ((= (i64toi32 0) (strcmp name "yellow")) (i64toi8 33))
+          ((= (i64toi32 0) (strcmp name "blue")) (i64toi8 34))
+          ((= (i64toi32 0) (strcmp name "magenta")) (i64toi8 35))
+          ((= (i64toi32 0) (strcmp name "cyan")) (i64toi8 36))
+          ((= (i64toi32 0) (strcmp name "white")) (i64toi8 37))
+          (else (i64toi8 0)))))
+    (printf "%c[%dm" (i64toi8 27) n)
+    void)))
+
+
+(bind-func highlighter:[void,i8*]*
+  (lambda (name)
+  (let ((n:i8
+         (cond
+          ((= (i64toi32 0) (strcmp name "black")) (i64toi8 40))
+          ((= (i64toi32 0) (strcmp name "red")) (i64toi8 41))
+          ((= (i64toi32 0) (strcmp name "green")) (i64toi8 42))
+          ((= (i64toi32 0) (strcmp name "yellow")) (i64toi8 43))
+          ((= (i64toi32 0) (strcmp name "blue")) (i64toi8 44))
+          ((= (i64toi32 0) (strcmp name "magenta")) (i64toi8 45))
+          ((= (i64toi32 0) (strcmp name "cyan")) (i64toi8 46))
+          ((= (i64toi32 0) (strcmp name "white")) (i64toi8 47))
+          (else (i64toi8 0)))))
+    (printf "%c[%dm" (i64toi8 27) n)
+    void)))
+
+
+
+;; Naive sorting algorithm - no attempt at optimisation
+;; Start with tmp list of already-sorted elements
+;; for each element in list, see where it fits into the already-sorted list - insert it there and remove it from the to-be-sorted
+
+(bind-func sort:[List{!a}*,List{!a}*,List{!a}*,[bool,!a,!a]*]*
+  (lambda (to_be_sorted already_sorted cmp)
+    (if (null? to_be_sorted)
+        already_sorted
+        (let* ((x (car to_be_sorted))
+               (y (cdr to_be_sorted))
+               (n:i64 (length already_sorted))
+               (loop:[List*,i64]*
+               (lambda (index:i64)
+                 (cond
+                  ((= n 0)
+                   (cons x already_sorted))
+                  ((>= index n)
+                   (insert already_sorted n x))
+                  ((cmp x (nth already_sorted index))
+                   (insert already_sorted index x))
+                  (else (loop (+ index 1)))))))
+          (sort y (loop 0) cmp)))))
+
+;; (bind-func test-sort:[i64]*
+;;   (lambda ()
+;;     (let* ((cmp:[bool,i64,i64]* (lambda (a b) (< a b)))
+;;           (lst:List{i64}* (list 3 12 6 39 2 44))
+;;           (sorted:List{i64}* (sort lst null cmp)))
+;;       (println sorted)
+;;       (length sorted))))
+
+;; (test-sort)
+
+
+(bind-func contains:[bool,!a,List{!a}*]*
+  (lambda (element lst)
+    (non-empty (member element lst))))
+
+
+(set! *xtmlib-ybot-base-loaded* #t)

@@ -3,11 +3,14 @@
     (sys:load-escape "ybot_filesystem library already loaded"))
 (define *xtmlib-ybot-filesystem-loaded* #f)
 
-(sys:load "libs/core/adt.xtm")
+;; Internal dependancies
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
+
+;; External dependancies
 (sys:load "libs/external/apr.xtm")
 
-(bind-macro (@ . args)
-            `(pref ,(car args) 0))
 
 
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
@@ -362,49 +365,6 @@
           #f)))))
                   
                    
-
-;; (bind-func yfs_process_recursive:[bool,i8*,[bool,i8*]*]*
-;;   (lambda (path proc)
-;;     (if (yfs_is_directory path)
-;;         (let* ((dir:apr_dir_t* (yfs_dir_open path))
-;;                (loop:[bool]*
-;;                 (lambda ()
-;;                   (let* ((info:apr_finfo_t* (salloc))
-;;                          (status:apr_status_t (apr_dir_read info (+ APR_FINFO_TYPE APR_FINFO_NAME) dir)))
-;;                     (printf "Next entry in %s is %s\n" path (tref info 14))
-;;                     (if (not (= status APR_ENOENT))
-;;                         (cond
-;;                          ((= APR_REG (tref info 3))
-;;                           (yfs_process_recursive (tref info 14) proc)
-;;                           (loop)
-;;                           #t)
-;;                          ((= APR_DIR (tref info 3))
-;;                           (if (not (or (= (i64toi32 0) (strcmp (tref info 14) ".")) (= (i64toi32 0) (strcmp (tref info 14) ".."))))
-;;                               (begin
-;;                                 (printf "Descending into %s\n" (tref info 14))
-;;                                 (yfs_process_recursive (tref info 14) proc)))
-;;                           (loop)
-;;                           #t)
-;;                          (else
-;;                           (printf "Ignoring directory %s\n" (tref info 14))
-;;                           (loop)
-;;                           #t))
-;;                         (begin
-;;                           (printf "Finished with branch %s\n" path)
-;;                           #t))))))
-;;           (loop))
-;;         (let* ((info:apr_finfo_t* (salloc))
-;;                (status (apr_stat info path APR_FINFO_TYPE yfs_global_pool)))
-;;           (cond
-;;            ((= APR_REG (tref info 3))
-;;             (printf "Processing file %s   directory? %d\n" path (i1toi32 (yfs_is_directory path)))
-;;             (proc path)
-;;             #t)
-;;            (else
-;;             (printf "Ignoring file %s\n" path)
-;;             #f))))))
-              
-          
 
 (set! *xtmlib-ybot-filesystem-loaded* #t)
 
