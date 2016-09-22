@@ -26,7 +26,6 @@
     (or (null? lst) (= 0 (length lst)))))
 
 
-
 (bind-func binary:[i8,i8*]*
   (lambda (digits)
     (let ((n:i64 (strlen digits))

@@ -72,18 +72,24 @@
       void)))
 
 (bind-func print_sanitised:[void,String*]*
-  (lambda (str)
-    (let ((n:i64 (length str))
-          (data:i8* (tref str 1)))
-      (doloop (i n)
-        (let ((c:i8 (pref data i)))
-          (cond
-           ((< 31:i8 c)
-            (printf "%c" c))
-           (else 
-            (printf "[%02X]" c)))))
-      void)))
+  (lambda (str:String*)
+    (cond
+     ((non-null str)
+      (let ((i:i64 0) (n:i64 (length str))
+             (data:i8* (tref str 1)))
+         (dotimes (i n)
+           (let ((c:i8 (pref data i)))
+             (cond
+              ((< 31:i8 c)
+               (printf "%c" c))
+              (else 
+               (printf "[%02X]" c)))))
+         void))
+     (else void))))
+
     
+
+
 
 
 ;; override base.xtm string comparison, so that it doesn't crash on null
@@ -95,8 +101,15 @@
             1:i1 0:i1))))
 
 
+;;;;;;;;;;;;;;;; String parsing utilities ;;;;;;;;;;;;;
+(bind-func first_word:[String*,String*]*
+  (lambda (str)
+    (let ((words (regex_split "[^a-zA-Z0-9]+" str)))
+      (if (non-empty words)
+          (car words)
+          null))))
 
-
+;;;;;;;;;;;;;;;;;;;; Dynamic Buffer ;;;;;;;;;;;;;;;;;
 ;; StringStreamBuffer:  data, length, capacity
 (bind-type StringStreamBuffer <i8*,i64,i64>)
 (bind-func StringStreamBuffer_c:[StringStreamBuffer*,i64]*
