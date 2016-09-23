@@ -8,7 +8,7 @@
     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
 (sys:load (string-append *ybot-lib-dir* "/ybot_filesystem.xtm"))
 
-(sys:load "libs/core/adt.xtm")
+;;(sys:load "libs/core/adt.xtm")
 (sys:load "libs/core/math_ext.xtm")
 
 (bind-func isnumeric:[bool,i8*]*

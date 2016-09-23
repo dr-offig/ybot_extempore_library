@@ -118,4 +118,20 @@
     (non-empty (member element lst))))
 
 
+(bind-func join:[String*,String*,List{String*}*]*
+  (lambda (delim lst)
+    (cond
+     ((null? lst) null)
+     (else
+      (let* ((stl:List{String*}* (reverse lst))
+             (loop (lambda (input:List{String*}* output:String*)
+                     (cond
+                      ((null? input) output)
+                      (else
+                       (loop (cdr input) (cat (car input) (cat delim output))))))))
+        (loop (cdr stl) (car stl)))))))
+
+
+
+
 (set! *xtmlib-ybot-base-loaded* #t)

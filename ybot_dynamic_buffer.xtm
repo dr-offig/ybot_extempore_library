@@ -109,6 +109,16 @@
           (car words)
           null))))
 
+
+(bind-func last_word:[String*,String*]*
+  (lambda (str)
+    (let ((words (regex_split "[^a-zA-Z0-9]+" str)))
+      (if (non-empty words)
+          (car (reverse words))
+          null))))
+
+
+
 ;;;;;;;;;;;;;;;;;;;; Dynamic Buffer ;;;;;;;;;;;;;;;;;
 ;; StringStreamBuffer:  data, length, capacity
 (bind-type StringStreamBuffer <i8*,i64,i64>)
@@ -258,6 +268,24 @@
     (if ignore_case
         (equal (lower (tail buf (length str))) (lower str))
         (equal (tail buf (length str)) str))))
+
+(bind-func substring:[String*,StringStreamBuffer*,i64,i64]*
+  (lambda (buffer start lngth)
+    (cond
+     ((< 0 lngth)
+      (let* ((data:i8* (alloc (+ lngth 1))))
+        (let ((tmp:i8* (strncpy data (pref-ptr (tref buffer 0) start) lngth)))
+          (cond
+           ((= tmp data)
+            (pset! data lngth 0:i8)
+            (String data))
+           (else null)))))
+     (else null))))
+         
+           
+
+     
+           
 
 
 ;; (bind-func test-tail

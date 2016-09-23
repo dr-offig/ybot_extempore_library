@@ -12,7 +12,6 @@
 (sys:load "libs/external/apr.xtm")
 
 
-
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
 
 (cond
@@ -291,7 +290,15 @@
       (apr_file_write file cstr sz)
       (= n (@ sz)))))
 
-  
+
+(bind-func yfs_write_string:[bool,apr_file_t*,String*]*
+  (lambda (file str)
+    (cond
+     ((non-null str)
+      (yfs_write_cstring file (cstring str)))
+     (else #f))))
+
+
 (bind-func yfs_file_count:[i64,i8*]*
   (lambda (path)
     (let* ((advertised_length:i64 (yfs_file_length path))
