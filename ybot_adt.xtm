@@ -1,12 +1,35 @@
-;; Include guard
-(if (and (defined? '*xtmlib-ybot-adt-loaded*) *xtmlib-ybot-adt-loaded*)
-    (sys:load-escape "ybot_adt library already loaded"))
-(define *xtmlib-ybot-adt-loaded* #f)
+;; ;; Include guard
+;; (if (and (defined? '*xtmlib-ybot-adt-loaded*) *xtmlib-ybot-adt-loaded*)
+;;     (sys:load-escape "ybot_adt library already loaded"))
+;; (define *xtmlib-ybot-adt-loaded* #f)
 
-;; Dependencies
-(if (not (defined? '*ybot-lib-dir*))
-    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-(sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
+;; ;; Dependencies
+;; (if (not (defined? '*ybot-lib-dir*))
+;;     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;; (sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
+
+
+(sys:load-preload-check 'ybot_adt)
+(define *xtmlib-ybot_adt-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_base.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_base.xtm" 'quiet))
+
+
+
+
+;;;;;;;;;;; Pair stuff ;;;;;;;;;;;;;;;;
+
+(bind-func first:[!a,Pair{!a,!b}*,!a]*
+  (lambda (p a)
+    (tset! p 0 a)))
+
+(bind-func second:[!b,Pair{!a,!b}*,!b]*
+  (lambda (q b)
+    (tset! q 1 b)))
+
 
 
 ;;;; More generalised associative array with comparator ;;;
@@ -29,7 +52,7 @@
 
 (bind-func hash_set:[!v,List{Pair{!w,!v}*}*,!w,!v,[bool,!w,!w]*]*
   "set (or overwrite) value for key in dict (returns the old value)"
-  (lambda (hash key value)
+  (lambda (hash key value cmp)
     (if (null? hash)
         (convert null)
         (if (cmp (first (car hash)) key)
@@ -40,6 +63,11 @@
                 (begin (append hash (list (Pair key value)))
                        (convert null))
                 (hash_set (cdr hash) key value cmp))))))
+
+
+
+;;;;;;;;;;;;;;;;;;; Corner case stuff ;;;;;;;;;;;;;;;;;;;
+;;(bind-func for-all-but-last:[void,[!a,!b]*,[!a,!b]*List{!b}*]*
 
 
 
@@ -206,7 +234,5 @@
 ;;            (output (make_node x)))
 ;;       output)))
 
-      
 
-
-(set! *xtmlib-ybot-adt-loaded* #t)
+(define *xtmlib-ybot_adt-loaded* #t)

@@ -87,18 +87,24 @@
          void))
      (else void))))
 
-    
-
-
-
 
 ;; override base.xtm string comparison, so that it doesn't crash on null
 (bind-func equal
   (lambda (s1:String* s2:String*)
     (if (or (null? s1) (null? s2))
-        1:i1
+        0:i1
         (if (= (strcmp (tref s1 1) (tref s2 1)) 0)
             1:i1 0:i1))))
+
+
+(bind-func safe_cstr:[i8*,String*]*
+  (lambda (str:String*)
+    (cond
+     ((non-null str)
+      (cstring str))
+     (else
+      (zalloc)))))
+        
 
 
 ;;;;;;;;;;;;;;;; String parsing utilities ;;;;;;;;;;;;;

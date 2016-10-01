@@ -1,10 +1,22 @@
-;; Include guard
-(if (and (defined? '*xtmlib-ybot-base-loaded*) *xtmlib-ybot-base-loaded*)
-    (sys:load-escape "ybot_base library already loaded"))
-(define *xtmlib-ybot-base-loaded* #f)
+;;(sys:load "libs/aot-cache/ybot_base.xtm" 'quiet)
+(sys:load-preload-check 'ybot_base)
+(define *xtmlib-ybot_base-loaded* #f)
 
-;; External dependancies
-(sys:load "libs/core/adt.xtm")
+(impc:aot:suppress-aot-do
+ (sys:load "libs/core/adt.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/core/adt.xtm" 'quiet))
+
+;;(impc:aot:insert-header "xtmybot_base")
+
+
+;; Include guard
+;; (if (and (defined? '*xtmlib-ybot-base-loaded*) *xtmlib-ybot-base-loaded*)
+;;     (sys:load-escape "ybot_base library already loaded"))
+;; (define *xtmlib-ybot-base-loaded* #f)
+
+;; ;; External dependancies
+;; (sys:load "libs/core/adt.xtm")
 
 (bind-macro (@ . args)
             `(pref ,(car args) 0))
@@ -24,6 +36,12 @@
 (bind-func empty:[bool,List{!a}*]*
   (lambda (lst)
     (or (null? lst) (= 0 (length lst)))))
+
+(bind-macro (con . args)
+            `(cond
+              ((non-null ,(car args))
+               (begin ,@(cdr args) void))
+              (else void)))
 
 
 (bind-func binary:[i8,i8*]*
@@ -132,6 +150,5 @@
         (loop (cdr stl) (car stl)))))))
 
 
-
-
-(set! *xtmlib-ybot-base-loaded* #t)
+(define *xtmlib-ybot_base-loaded* #t)
+;;(impc:aot:insert-footer "xtmybot_base")

@@ -1,15 +1,29 @@
+;;(sys:load "libs/aot-cache/ybot_filesystem.xtm" 'quiet)
+(sys:load-preload-check 'ybot_filesystem)
+(define *xtmlib-ybot_filesystem-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_base.xtm")
+ (sys:load "libs/external/apr.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_base.xtm" 'quiet)
+ (sys:load "libs/external/apr.xtm"))
+
+;;(impc:aot:insert-header "xtmybot_filesystem")
+
+
 ;; Include guard
-(if (and (defined? '*xtmlib-ybot-filesystem-loaded*) *xtmlib-ybot-filesystem-loaded*)
-    (sys:load-escape "ybot_filesystem library already loaded"))
-(define *xtmlib-ybot-filesystem-loaded* #f)
+;; (if (and (defined? '*xtmlib-ybot-filesystem-loaded*) *xtmlib-ybot-filesystem-loaded*)
+;;     (sys:load-escape "ybot_filesystem library already loaded"))
+;; (define *xtmlib-ybot-filesystem-loaded* #f)
 
-;; Internal dependancies
-(if (not (defined? '*ybot-lib-dir*))
-    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-(sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
+;; ;; Internal dependancies
+;; (if (not (defined? '*ybot-lib-dir*))
+;;     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;; (sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
 
-;; External dependancies
-(sys:load "libs/external/apr.xtm")
+;; ;; External dependancies
+;; (sys:load "libs/external/apr.xtm")
 
 
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
@@ -370,10 +384,85 @@
           ;(printf "Ignoring irregular file %s\n" path)
           (apr_pool_destroy pool)
           #f)))))
-                  
+
+
+(bind-func yfs_process_recursive:[bool,i8*,[bool,i8*,apr_file_t*]*,apr_file_t*]*
+  (lambda (path proc logfile)
+    (let ((pool:apr_pool_t* (apr_pool_create)))
+      (cond
+       ((yfs_is_regular_file path)
+        ;(printf "Processing %s\n" path)
+        (proc path logfile)
+        (apr_pool_destroy pool)
+        #t)
+       ((yfs_is_directory path)
+        ;(printf "Descending into %s\n" path)
+        (let* ((dir:apr_dir_t* (yfs_dir_open path))
+               (loop:[bool]*
+                (lambda ()
+                  (let* ((info:apr_finfo_t* (salloc))
+                         (status:apr_status_t (apr_dir_read info (+ APR_FINFO_TYPE APR_FINFO_NAME) dir))
+                         (next_entry:i8* (tref info 14))
+                         (pp:i8** (zalloc)))
+                    (cond
+                     ((= status APR_ENOENT)
+                      ;(printf "\nDone with directory %s\n" path)
+                      (apr_dir_close dir)
+                      #f)
+                     (else
+                      (cond
+                       ((= (pref next_entry 0) (i64toi8 46))
+                        ;(printf "Ignoring hidden directory %s\n" next_entry)
+                        (loop)
+                        #t)
+                       (else
+                        (apr_filepath_merge pp path next_entry APR_FILEPATH_NATIVE pool)
+                        (yfs_process_recursive (@ pp) proc logfile)
+                        (loop)
+                        #t))))))))
+            (loop)
+            (apr_pool_destroy pool)
+            #t))
+         (else
+          ;(printf "Ignoring irregular file %s\n" path)
+          (apr_pool_destroy pool)
+          #f)))))
+
+
+(bind-func yfs_process_recursive:[bool,i8*,[bool,i8*,apr_file_t*,i8**]*,apr_file_t*,i8**]*
+  (lambda (path proc logfile pData)
+    (let ((pool:apr_pool_t* (apr_pool_create)))
+      (cond
+       ((yfs_is_regular_file path)
+        (proc path logfile pData)
+        (apr_pool_destroy pool) #t)
+       ((yfs_is_directory path)
+        (let* ((dir:apr_dir_t* (yfs_dir_open path))
+               (loop:[bool]*
+                (lambda ()
+                  (let* ((info:apr_finfo_t* (salloc))
+                         (status:apr_status_t (apr_dir_read info (+ APR_FINFO_TYPE APR_FINFO_NAME) dir))
+                         (next_entry:i8* (tref info 14))
+                         (pp:i8** (zalloc)))
+                    (cond
+                     ((= status APR_ENOENT)
+                      (apr_dir_close dir) #f)
+                     (else
+                      (cond
+                       ((= (pref next_entry 0) (i64toi8 46))
+                        (loop) #t)
+                       (else
+                        (apr_filepath_merge pp path next_entry APR_FILEPATH_NATIVE pool)
+                        (yfs_process_recursive (@ pp) proc logfile pData)
+                        (loop) #t))))))))
+            (loop) (apr_pool_destroy pool) #t))
+         (else
+          (apr_pool_destroy pool) #f)))))
+
+
+
                    
-
-(set! *xtmlib-ybot-filesystem-loaded* #t)
-
+(define *xtmlib-ybot_filesystem-loaded* #t)
+;;(impc:aot:insert-footer "xtmybot_filesystem")
 
 

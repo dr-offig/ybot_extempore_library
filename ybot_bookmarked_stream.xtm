@@ -1,0 +1,104 @@
+(bind-type BookmarkedStream <apr_file_t*,List{i64}*,bool*>)
+
+(bind-func next:[i8,BookmarkedStream*]*
+  (lambda (stream)
+    (yfs_read_byte (tref stream 0) (tref stream 2))))
+
+
+(bind-func peek:[i8,BookmarkedStream*]*
+  (lambda (stream)
+    (yfs_peek_byte (tref stream 0))))
+
+
+(bind-func goto:[bool,BookmarkedStream*,i64]*
+  (lambda (stream index)
+    (let ((new_index:i64 (yfs_file_seek (tref stream 0) index)))
+      (= new_index index))))
+
+
+(bind-func goto_start:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (goto stream 0)))
+    
+
+(bind-func playhead:[i64,BookmarkedStream*]*
+  (lambda (stream)
+    (yfs_current_playhead (tref stream 0))))
+
+(bind-func push_bookmark:[void,BookmarkedStream*]*
+  (lambda (stream)
+    (tset! stream 1 (cons (playhead stream) (tref stream 1)))
+    void))
+
+(bind-func pop_bookmark:[i64,BookmarkedStream*]*
+  (lambda (stream)
+    (let ((output (car (tref stream 1))))
+      (tset! stream 1 (cdr (tref stream 1)))
+      output)))
+
+
+(bind-func step_back:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (goto stream (- (playhead stream) 1))))
+
+
+(bind-func backtrack:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (cond
+     ((non-empty (tref stream 1))
+      (goto stream (pop_bookmark stream)))
+     (else #f))))
+
+
+(bind-func peek_bookmark:[i64,BookmarkedStream*]*
+  (lambda (stream)
+    (car (tref stream 1))))
+
+
+(bind-func end_of_stream:[bool,BookmarkedStream*]*
+  (lambda (stream)
+    (@ (tref stream 2))))
+
+
+(bind-func print:[void,BookmarkedStream*]*
+  (lambda (stream)
+    (let ((sorted:List{i64}* (sort (tref stream 1) null (lambda (a:i64 b:i64) (< a b)))))
+      (goto stream 0)
+      (let ((loop:[void,i64,List{i64}*]*
+             (lambda (index:i64 marks:List{i64}*)
+               ;(println "Index: " index)
+               (cond
+                ((end_of_stream stream) void)
+                (else
+                 (cond
+                  ((and (non-empty marks) (= index (car marks)))
+                   (highlighter "white")
+                   (colour_pencil "black")
+                   (printf "%c" (next stream))
+                   (loop (+ index 1) (cdr marks)))
+                  (else
+                   (highlighter "normal")
+                   (printf "%c" (next stream))
+                   (loop (+ index 1) marks))))))))
+        (loop 0 sorted)))))
+
+
+;; (bind-func test-stream:[void,i8*]*
+;;   (lambda (path)
+;;     (let* ((eof:bool* (zalloc))
+;;            (file:apr_file_t* (yfs_open path))
+;;            (stream:BookmarkedStream* (BookmarkedStream file null eof))
+;;            (i:i64 0) (j:i64 0) (k:i64 0) (n:i64 0))
+;;       (dotimes (i 12)
+;;         (next stream))
+;;       (push_bookmark stream)
+;;       (dotimes (j 26)
+;;         (next stream))
+;;       (push_bookmark stream)
+;;       (dotimes (k 32)
+;;         (next stream))
+;;       (push_bookmark stream)
+;;       (print stream)
+;;       (println "")
+;;       (yfs_close file)
+;;       void)))

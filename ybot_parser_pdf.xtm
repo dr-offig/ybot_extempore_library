@@ -1,0 +1,244 @@
+(if (and (defined? '*xtmlib-ybot-parser-pdf-loaded*) *xtmlib-ybot-parser-pdf-loaded*)
+    (sys:load-escape "ybot_parser_pdf library already loaded"))
+(define *xtmlib-ybot-parser-pdf-loaded* #f)
+
+(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+(if (not (defined? '*ybot-lib-dir*))
+    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+(sys:load (string-append *ybot-lib-dir* "/ybot_parser.xtm"))
+
+;; ;; Opaque type currently
+;; (bind-alias PDFStream <i8*>)
+
+
+
+
+;; (bind-alias parser_t [bool,CharStream*]*)
+
+;; (bind-type HTMLParseContext <HTMLTag*,StringStreamBuffer*,halting_cond_t,i8> (constructor? . #f) (printer? . #f))
+
+;; ;; provide our own constructor
+;; (bind-func HTMLParseContext:[HTMLParseContext*,HTMLTag*,halting_cond_t,i8]*
+;;   (lambda (tag condition state)
+;;     (let ((context:HTMLParseContext* (alloc)))
+;;       (tset! context 0 tag)
+;;       (tset! context 1 (StringStreamBuffer_c 256))
+;;       (tset! context 2 condition)
+;;       (tset! context 3 state)
+;;       context)))
+
+
+;; ;; getters and setters 
+;; (bind-func tag (lambda (context:HTMLParseContext*) (tref context 0)))
+;; (bind-func tag (lambda (context:HTMLParseContext* tag_in:HTMLTag*) (tset! context 0 tag_in)))
+;; (bind-func buffer (lambda (context:HTMLParseContext*) (tref context 1)))
+;; (bind-func buffer (lambda (context:HTMLParseContext* buffer_in:StringStreamBuffer*) (tset! context 1 buffer_in)))
+;; (bind-func condition (lambda (context:HTMLParseContext*) (tref context 2)))
+;; (bind-func condition (lambda (context:HTMLParseContext* condition_in:halting_cond_t) (tset! context 2 condition_in)))
+;; (bind-func state (lambda (context:HTMLParseContext*) (tref context 3)))
+;; (bind-func state (lambda (context:HTMLParseContext* state_in:i8) (tset! context 3 state_in)))
+
+;; (bind-func replicate:[HTMLParseContext*,HTMLParseContext*]*
+;;   (lambda (context)
+;;     (let ((new_context:HTMLParseContext* (alloc)))
+;;       (tset! new_context 0 (tag context))
+;;       (tset! new_context 1 (buffer context))
+;;       (tset! new_context 2 (condition context))
+;;       (tset! new_context 3 (state context))
+;;       new_context)))
+
+
+;; (bind-func replicate_into_literal:[HTMLParseContext*,HTMLParseContext*]*
+;;   (lambda (context)
+;;     (let ((new_context:HTMLParseContext* (alloc)))
+;;       (tset! new_context 0 (tag context))
+;;       (tset! new_context 1 (buffer context))
+;;       (tset! new_context 2 html_literal_cond)
+;;       (tset! new_context 3 HTML_TAG_LITERAL)
+;;       new_context)))
+
+
+
+;; (bind-func HTMLParseContext_default:[HTMLParseContext*]*
+;;   (lambda ()
+;;     (let* ((context:HTMLParseContext* (alloc))
+;;            (tag:HTMLTag* (HTMLTag (String "Document") null null null (String "") (binary "00000000")))
+;;            (buffer:StringStreamBuffer* (StringStreamBuffer_c 256))
+;;            (state HTML_DEFAULT))
+;;       (tfill! context tag buffer html_default_cond state)
+;;       context)))
+      
+
+;; (bind-func print_context:[void,HTMLParseContext*]*
+;;   (lambda (ctxt)
+;;     (cond
+;;      ((non-null ctxt)
+;;       (printf "State: %s \tTag: " (cstring (name_of_state (state ctxt))))
+;;       (print_shallow (tag ctxt) 0)
+;;       (cond
+;;        ((non-null (buffer ctxt))
+;;         (print_sanitised (toString (buffer ctxt)))))
+;;       (printf "\n")
+;;       void)
+;;     (else void))))
+
+;; (bind-func print_context_brief:[void,HTMLParseContext*]*
+;;   (lambda (ctxt)
+;;     (cond
+;;      ((non-null ctxt)
+;;       (printf "State: %s \tTag: " (cstring (name_of_state (state ctxt))))
+;;       (print_shallow (tag ctxt) 0)
+;;       (printf "\n")
+;;       void)
+;;     (else void))))
+
+
+;; (bind-type HTMLParseContextStack <List{HTMLParseContext*}*> (constructor? . #f) (printer? . #f))
+
+;; (bind-func HTMLParseContextStack:[HTMLParseContextStack*]*
+;;   (lambda ()
+;;     (let* ((stack:HTMLParseContextStack* (alloc))
+;;            (context_list:List{HTMLParseContext*}* (list (HTMLParseContext_default))))
+;;       (tfill! stack context_list)
+;;       stack)))
+
+;; (bind-func head:[List{HTMLParseContext*}*,HTMLParseContextStack*]* (lambda (stack:HTMLParseContextStack*) (tref stack 0)))
+;; (bind-func head (lambda (stack:HTMLParseContextStack* head_in:List{HTMLParseContext*}*) (tset! stack 0 head_in)))
+
+;; (bind-func print_context_stack:[void,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (for-each print_context (head stack))))
+
+;; (bind-func print_context_stack_brief:[void,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (for-each print_context_brief (head stack))))
+
+
+;; (bind-func pop:[HTMLParseContext*,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (cond
+;;      ((non-null stack)
+;;       ;;(printf "Popping stack\n")
+;;       ;;(print_context_stack stack)
+;;       (let ((lst (head stack)))
+;;         (cond
+;;          ((non-null lst)
+;;           (cond
+;;            ((< 0 (length lst))
+;;             (cond
+;;              ((< 1 (length lst))
+;;               (let ((top_context:HTMLParseContext* (car lst)))
+;;                 (head stack (cdr lst))
+;;                 top_context))
+;;              (else
+;;               (car lst))))
+;;             (else
+;;              (printf "Stack has no elements!\n")
+;;              (HTMLParseContext_default))))
+;;           (else
+;;            (printf "List of contexts is null!\n")
+;;            (HTMLParseContext_default)))))
+;;      (else
+;;       (printf "Stack is null!\n")
+;;       (HTMLParseContext_default)))))
+
+
+;; (bind-func push:[HTMLParseContextStack*,HTMLParseContextStack*,HTMLParseContext*]*
+;;   (lambda (stack context)
+;;     ;;(printf "Pushing context:\n")
+;;     ;;(print_context context)
+;;     (cond
+;;      ((non-null stack)
+;;       ;;(printf "onto stack:\n")
+;;       ;;(print_context_stack stack)
+;;       (head stack (cons context (head stack)))
+;;       stack)
+;;      (else
+;;       (let ((output:HTMLParseContextStack* (HTMLParseContextStack)))
+;;         (head output (cons context (head output)))
+;;         (set! stack output)
+;;         stack)))))
+
+
+;; (bind-func bottom:[HTMLParseContext*,HTMLParseContextStack*]*
+;;   (lambda (stack:HTMLParseContextStack*)
+;;     (cond
+;;      ((non-null stack)
+;;       (car (last (head stack))))
+;;      (else null))))
+
+
+;; (bind-func top:[HTMLParseContext*,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (car (head stack))))
+
+
+;; (bind-func tag:[HTMLTag*,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (tag:[HTMLTag*,HTMLParseContext*]* (top stack))))
+
+;; (bind-func buffer:[StringStreamBuffer*,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (buffer:[StringStreamBuffer*,HTMLParseContext*]* (top stack))))
+
+;; (bind-func condition:[halting_cond_t,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (condition:[halting_cond_t,HTMLParseContext*]* (top stack))))
+
+;; (bind-func state:[i8,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (state:[i8,HTMLParseContext*]* (top stack))))
+
+
+
+;; (bind-func parser_c:[parser_t,HTMLParseContext*]*
+;;   (lambda (context)
+;;     (letrec
+;;         ((parser:parser_t
+;;           (lambda (stream)
+;;             (cond
+;;              ((not (end_of_stream stream))
+;;               (let* ((c:i8 (next stream)))
+;;                 (highlighter "red") (printf "%c" c) (highlighter "normal")
+;;                 (cond
+;;                  (((condition context) c)
+;;                   ;;(printf "\n --- Encountered %c --- stopped parsing in context " c)
+;;                   ;;(print_context_brief context)
+;;                   (step_back stream)
+;;                   #t)
+;;                  (else
+;;                   (buffer context (write (buffer context) c))
+;;                   (parser stream)))))
+;;              (else #f)))))
+;;       parser)))
+
+
+;; ;; (keep_parsing:[bool]*
+;; ;;  (lambda ()
+;; ;;    (printf "... resuming parsing of tag %s in state %s ... \n" (cstring (label (current_tag))) (cstring (name_of_state (current_state))))
+;; ;;    (char_reader stream (current_tag) (current_buffer) (current_condition))))
+
+;; (bind-func collapse:[HTMLTag*,HTMLParseContextStack*]*
+;;   (lambda (stack)
+;;     (let ((doc_context:HTMLParseContext* (bottom stack)))
+;;       (cond
+;;        ((and (non-null doc_context) (nontrivial (buffer doc_context)) (non-null (tag doc_context)))
+;;         (contents (tag doc_context) (toString (buffer doc_context))) #t)
+;;        (else #f))
+;;       (tag doc_context))))
+
+
+
+;; (bind-func parse_pdf_file:[PDF*,i8*]*
+;;   (lambda (path)
+;;     (let ((file (yfs_open path)))
+;;       (if (non-null file)
+;;           (let* ((eof:bool* (zalloc))
+;;                  (stream:CharStream* (CharStream file eof))
+;;                  (stack:HTMLParseContextStack* (HTMLParseContextStack)))
+;;             (let ((output:HTMLTag* (parse_html_stream stream stack)))
+;;               (yfs_close file)
+;;               output))
+;;           null))))
+
+

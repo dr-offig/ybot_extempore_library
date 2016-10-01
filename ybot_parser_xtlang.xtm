@@ -1,0 +1,573 @@
+(sys:load-preload-check 'ybot_parser_xtlang)
+(define *xtmlib-ybot_parser_xtlang-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_parser.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_parser.xtm" 'quiet))
+
+(bind-val xtDoubleQuote i8 (i64toi8 34))
+(bind-val xtTab i8 (i64toi8 9))
+(bind-val xtCarriageReturn i8 (i64toi8 13))
+(bind-val xtLineFeed i8 (i64toi8 10))
+(bind-val xtSpace i8 (i64toi8 32))
+(bind-val xtExclamationMark i8 (i64toi8 33))
+
+(bind-type XTAbstraction <String*,List{Pair{i64,i8*}*}*> (constructor? . #f) (printer? . #f))
+
+(bind-func XTAbstraction:[XTAbstraction*,String*,List{Pair{i64,XTAbstraction*}*}*]*
+  (lambda (typestr template_args)
+    (let ((output:XTAbstraction* (alloc)))
+      (tset! output 0 typestr)
+      (tset! output 1 (cast template_args List{Pair{i64,i8*}*}*))
+      output)))
+
+(bind-func template:[String*,XTAbstraction*]*
+  (lambda (abstraction)
+    (tref abstraction 0)))
+
+(bind-func template:[String*,XTAbstraction*,String*]*
+  (lambda (abstraction in_template)
+    (tset! abstraction 0 in_template)))
+
+
+(bind-func template_args:[List{Pair{i64,XTAbstraction*}*}*,XTAbstraction*]*
+  (lambda (abstraction)
+    (cast (tref abstraction 1) List{Pair{i64,XTAbstraction*}*}*)))
+
+
+(bind-func template_args:[List{Pair{i64,XTAbstraction*}*}*,XTAbstraction*,List{Pair{i64,XTAbstraction*}*}*]*
+  (lambda (abstraction in_template_args)
+    (tset! abstraction 1 (cast in_template_args List{Pair{i64,i8*}*}*))))
+
+
+(bind-func 
+
+
+(bind-func print_shallow:[void,XTAbstraction*,i64]*
+  (lambda (abstraction depth)
+    (if (non-null abstraction)
+        (let* ((tp:String* (template abstraction))
+               (attr:List{Pair{String*,String*}*}*  (attributes tag))
+               (cntnts:String* (contents tag)))
+          (doloop (i depth)
+            (printf "  "))
+          (if (non-null name) (printf "<%s" (cstring name)) (printf "<%s" "unknown"))
+          (let ((attr_printer:[void,Pair{String*,String*}*]*
+                 (lambda (a:Pair{String*,String*}*)
+                   (cond
+                    ((non-null a)
+                     (if (non-null (first a)) (begin (printf " %s" (cstring (first a))) void) void)
+                     (if (non-null (second a)) (begin (printf "=%c%s%c" xmlDoubleQuote (cstring (second a)) xmlDoubleQuote) void) void))
+                    (else void)))))
+            (for-each attr_printer (reverse attr)))
+          (printf ">")
+          (if (not (void_element tag))
+              (begin
+                (highlighter "black")
+                (print_sanitised cntnts)
+                (highlighter "normal")
+                void)
+              void))
+        (begin
+          (printf "<NULL TAG>")
+          void))
+      void))
+      
+(bind-func print_deep:[void,XMLTag*,i64]*
+  (lambda (tag depth)
+    (cond
+     ((non-null tag)
+      (print_shallow tag depth)
+      (printf "\n")
+      (for-each (lambda (child) (print_deep child (+ depth 1))) (reverse (children tag)))
+      (if (not (void_element tag))
+          (let ((i:i64 0))
+            (dotimes (i depth)
+              (printf "  "))))
+      (if (and (non-null (label tag)) (not (void_element tag)))
+          (printf "</%s>\n" (cstring (label tag))))
+      void)
+     (else void))))
+
+
+(bind-func print:[void,XMLTag*]*
+  (lambda (tag) (cond ((non-null tag) (print_deep tag 0)) (else void))))
+      
+
+
+;; Context encoding
+(bind-val XTTYPE_LITERAL i8                       (binary "00000000"))
+(bind-val XTTYPE_DEFAULT i8                     (binary "00000001"))
+(bind-val XTTYPE_TEMPLATE_ARG i8         (binary "00000010"))
+
+(bind-func name_of_state:[String*,i8]*
+  (lambda (state:i8)
+    (cond
+     ((= state (binary "00000000")) (String "LITERAL"))
+     ((= state (binary "00000001")) (String "DEFAULT"))
+     ((= state (binary "00000010")) (String "TEMPLATE_ARG"))
+     (else (String "UNKNOWN")))))
+     
+
+(bind-func xttype_default_cond:halting_cond_t
+ (lambda (c)
+   (contains c (list xtSpace xtTab xtLineFeed xtCarriageReturn xtDoubleQuote xtExclamationMark))))
+
+(bind-func xttype_literal_cond:halting_cond_t
+ (lambda (c)
+   (contains c (list xtDoubleQuote))))
+           
+
+(bind-type XTTypeParseContext <XTAbstraction*,StringStreamBuffer*,halting_cond_t,i8> (constructor? . #f) (printer? . #f))
+
+;; provide our own constructor
+(bind-func XTTypeParseContext:[XTTypeParseContext*,XTAbstraction*,halting_cond_t,i8]*
+  (lambda (abstraction condition state)
+    (let ((context:XTTypeParseContext* (alloc)))
+      (tset! context 0 abstraction)
+      (tset! context 1 (StringStreamBuffer_c 256))
+      (tset! context 2 condition)
+      (tset! context 3 state)
+      context)))
+
+
+;; getters and setters 
+(bind-func abstraction (lambda (context:XTTypeParseContext*) (tref context 0)))
+(bind-func abstraction (lambda (context:XTTypeParseContext* abstraction_in:XTAbstraction*) (tset! context 0 abstraction_in)))
+(bind-func buffer (lambda (context:XTTypeParseContext*) (tref context 1)))
+(bind-func buffer (lambda (context:XTTypeParseContext* buffer_in:StringStreamBuffer*) (tset! context 1 buffer_in)))
+(bind-func condition (lambda (context:XTTypeParseContext*) (tref context 2)))
+(bind-func condition (lambda (context:XTTypeParseContext* condition_in:halting_cond_t) (tset! context 2 condition_in)))
+(bind-func state (lambda (context:XTTypeParseContext*) (tref context 3)))
+(bind-func state (lambda (context:XTTypeParseContext* state_in:i8) (tset! context 3 state_in)))
+
+(bind-func replicate:[XTTypeParseContext*,XTTypeParseContext*]*
+  (lambda (context)
+    (let ((new_context:XTTypeParseContext* (alloc)))
+      (tset! new_context 0 (abstraction context))
+      (tset! new_context 1 (buffer context))
+      (tset! new_context 2 (condition context))
+      (tset! new_context 3 (state context))
+      new_context)))
+
+
+(bind-func replicate_into_literal:[XTTypeParseContext*,XTTypeParseContext*]*
+  (lambda (context)
+    (let ((new_context:XTTypeParseContext* (alloc)))
+      (tset! new_context 0 (abstraction context))
+      (tset! new_context 1 (buffer context))
+      (tset! new_context 2 xttype_literal_cond)
+      (tset! new_context 3 XTTYPE_LITERAL)
+      new_context)))
+
+
+(bind-func XTTypeParseContext_default:[XTTypeParseContext*]*
+  (lambda ()
+    (let* ((context:XTTypeParseContext* (alloc))
+           (abstraction:XTAbstraction* (XTAbstraction (String "")))
+           (buffer:StringStreamBuffer* (StringStreamBuffer_c 256))
+           (state XTTYPE_DEFAULT))
+      (tfill! context abstraction buffer xttype_default_cond state)
+      context)))
+      
+
+(bind-func print_context:[void,XTTypeParseContext*]*
+  (lambda (ctxt)
+    (cond
+     ((non-null ctxt)
+      (printf "State: %s \tTag: " (cstring (name_of_state (state ctxt))))
+      (print (template (abstraction ctxt)))
+      (cond
+       ((non-null (buffer ctxt))
+        (print_sanitised (toString (buffer ctxt)))))
+      (printf "\n")
+      void)
+    (else void))))
+
+(bind-func print_context_brief:[void,XTTypeParseContext*]*
+  (lambda (ctxt)
+    (cond
+     ((non-null ctxt)
+      (printf "State: %s \tTemplate: " (cstring (name_of_state (state ctxt))))
+      (print (template (abstraction ctxt)))
+      (printf "\n")
+      void)
+    (else void))))
+
+
+(bind-type XTTypeParseContextStack <List{XTTypeParseContext*}*> (constructor? . #f) (printer? . #f))
+
+(bind-func XTTypeParseContextStack:[XTTypeParseContextStack*]*
+  (lambda ()
+    (let* ((stack:XTTypeParseContextStack* (alloc))
+           (context_list:List{XTTypeParseContext*}* (list (XTTypeParseContext_default))))
+      (tfill! stack context_list)
+      stack)))
+
+(bind-func head:[List{XTTypeParseContext*}*,XTTypeParseContextStack*]* (lambda (stack:XTTypeParseContextStack*) (tref stack 0)))
+(bind-func head (lambda (stack:XTTypeParseContextStack* head_in:List{XTTypeParseContext*}*) (tset! stack 0 head_in)))
+
+(bind-func print_context_stack:[void,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (for-each print_context:[void,XTTypeParseContext*]* (head stack))))
+
+(bind-func print_context_stack_brief:[void,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (for-each print_context_brief:[void,XTTypeParseContext*]* (head stack))))
+
+
+(bind-func pop:[XTTypeParseContext*,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (cond
+     ((non-null stack)
+      ;;(printf "Popping stack\n")
+      ;;(print_context_stack stack)
+      (let ((lst (head stack)))
+        (cond
+         ((non-null lst)
+          (cond
+           ((< 0 (length lst))
+            (cond
+             ((< 1 (length lst))
+              (let ((top_context:XTTypeParseContext* (car lst)))
+                (head stack (cdr lst))
+                top_context))
+             (else
+              (car lst))))
+            (else
+             (printf "Stack has no elements!\n")
+             (XTTypeParseContext_default))))
+          (else
+           (printf "List of contexts is null!\n")
+           (XTTypeParseContext_default)))))
+     (else
+      (printf "Stack is null!\n")
+      (XTTypeParseContext_default)))))
+
+
+(bind-func push:[XTTypeParseContextStack*,XTTypeParseContextStack*,XTTypeParseContext*]*
+  (lambda (stack context)
+    ;;(printf "Pushing context:\n")
+    ;;(print_context context)
+    (cond
+     ((non-null stack)
+      ;;(printf "onto stack:\n")
+      ;;(print_context_stack stack)
+      (head stack (cons context (head stack)))
+      stack)
+     (else
+      (let ((output:XTTypeParseContextStack* (XTTypeParseContextStack)))
+        (head output (cons context (head output)))
+        (set! stack output)
+        stack)))))
+
+
+(bind-func bottom:[XTTypeParseContext*,XTTypeParseContextStack*]*
+  (lambda (stack:XTTypeParseContextStack*)
+    (cond
+     ((non-null stack)
+      (car (last (head stack))))
+     (else null))))
+
+
+(bind-func top:[XTTypeParseContext*,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (car (head stack))))
+
+
+(bind-func abstraction:[XTAbstraction*,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (abstraction:[XTAbstraction*,XTTypeParseContext*]* (top stack))))
+
+(bind-func buffer:[StringStreamBuffer*,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (buffer:[StringStreamBuffer*,XTTypeParseContext*]* (top stack))))
+
+(bind-func condition:[halting_cond_t,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (condition:[halting_cond_t,XTTypeParseContext*]* (top stack))))
+
+(bind-func state:[i8,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (state:[i8,XTTypeParseContext*]* (top stack))))
+
+
+
+(bind-func parser_c:[parser_t,XTTypeParseContext*]*
+  (lambda (context)
+    (letrec
+        ((parser:parser_t
+          (lambda (stream)
+            (cond
+             ((not (end_of_stream stream))
+              (let* ((c:i8 (next stream)))
+                (highlighter "red") (printf "%c" c) (highlighter "normal")
+                (cond
+                 (((condition context) c)
+                  ;;(printf "\n --- Encountered %c --- stopped parsing in context " c)
+                  ;;(print_context_brief context)
+                  (step_back stream)
+                  #t)
+                 (else
+                  (buffer context (write (buffer context) c))
+                  (parser stream)))))
+             (else #f)))))
+      parser)))
+
+
+(bind-func collapse:[XTAbstraction*,XTTypeParseContextStack*]*
+  (lambda (stack)
+    (let* ((lst:List{XTTypeParseContext*}* (tref stack 0))
+           (mapper:[String*,XTTypeParseContext*]* (lambda (cntxt) (template (abstraction cntxt))))
+           (strlst:List{String*}* (map mapper lst))
+           (str:String* (concat strlst)))
+      (XTAbstraction str))))
+
+
+(bind-func parse_xttype_stream:[XTAbstraction*,CharStream*,XTTypeParseContextStack*]*
+  (lambda (stream:CharStream* stack:XTTypeParseContextStack*)
+    (cond
+     ((end_of_stream stream)
+      (collapse stack))
+     (else
+      (let ((parse:parser_t (parser_c (top stack))))
+        (cond ;; 1a
+
+         ((= (state stack) XTTYPE_LITERAL)
+          (cond
+           ((parse stream)
+            (pop stack)
+            (next stream)
+            (parse_xttype_stream stream stack))
+           (else (collapse stack))))
+
+         ((= (state stack) XTTYPE_TEMPLATE_ARG)
+          (cond
+           ((parse stream)
+            (let ((d (peek stream)))
+              (cond
+               ((= d xmlQuestionMark)
+                (next stream)
+                (parse_xml_stream stream stack))
+               (else
+                (let* ((child:XMLTag* (XMLTag (String "TBC") null null null (String "") (binary "00000000")))
+                       (new_context:XMLParseContext*  (XMLParseContext child xml_label_cond XML_TAG_LABEL)))
+                  (add_child (tag stack) child)
+                  (push stack new_context))
+                (parse_xml_stream stream stack)))))
+           (else (collapse stack))))
+
+         ((= (state stack) XT.....)
+          (cond
+           ((parse stream)
+            (cond
+             ((= (peek stream) xmlDoubleQuote)
+              (push stack (replicate_into_literal (top stack)))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlSpace)
+              (label (tag stack) (toString (buffer stack)))
+              ;;(printf "Tag label identified as %s\n" (cstring (label (tag stack))))
+              (cond
+               ((contains (lower (label (tag stack))) (list (Str "link") (Str "br") (Str "img") (Str "image")))
+                ;;(printf "Marking tag %s as void\n" (cstring (label (tag stack))))
+                (set_void_element (tag stack))))
+              (cond
+               ((contains (lower (label (tag stack))) (list (String "li")))
+                ;;(printf "Marking tag %s as not allowing self-nesting\n" (cstring (label (tag stack))))
+                (set_no_self_nesting_element (tag stack))))
+              (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_attribute_name_cond XML_TAG_ATTRIBUTE_NAME)))
+                (pop stack)
+                (push stack new_context))
+              (skip_whitespace stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlCloseAngleBracket)
+              (label (tag stack) (toString (buffer stack)))
+              ;;(printf "Tag label identified as %s\n" (cstring (label (tag stack))))
+              (cond
+               ((contains (lower (label (tag stack))) (list (String "li")))
+                ;;(printf "Marking tag %s as not allowing self-nesting\n" (cstring (label (tag stack))))
+                (set_no_self_nesting_element (tag stack))))
+              (cond
+               ((contains (lower (label (tag stack))) (list (Str "link") (Str "br") (Str "img") (Str "image")))
+                ;;(printf "Marking tag %s as void\n" (cstring (label (tag stack))))
+                (set_void_element (tag stack))
+                (pop_while_matching_tag stack (tag stack))
+                (next stream)
+                (parse_xml_stream stream stack))
+               (else
+                (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_content_cond XML_TAG_CONTENT)))
+                  (pop stack)
+                  (push stack new_context))
+                (next stream)
+                (parse_xml_stream stream stack))))
+             (else
+              (next stream)
+              (parse_xml_stream stream stack))))
+           (else (collapse stack))))
+
+         
+         ((= (state stack) XTTYPE_DEFAULT)
+          (cond
+           ((parse stream)
+            (cond
+             ((= (peek stream) xmlDoubleQuote)
+              (push stack (replicate_into_literal (top stack)))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xtExclamationMark)
+              (let ((c (next stream)))
+                (cond
+                 ((isalpha c)
+                  
+
+              
+              (cond
+               ((nontrivial (buffer stack))
+                (let ((attr:Pair{String*,String*}* (Pair (toString (buffer stack)) null)))
+                (push_attribute (tag stack) attr))))
+              (if (void_element (tag stack)) (pop_while_matching_tag stack (tag stack)))
+              (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_content_cond XML_TAG_CONTENT)))
+                (pop stack)
+                (push stack new_context))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlEquals)
+              (let ((attr:Pair{String*,String*}* (Pair (toString (buffer stack)) null)))
+                (push_attribute (tag stack) attr))
+              (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_attribute_value_cond XML_TAG_ATTRIBUTE_VALUE)))
+                (pop stack)
+                (push stack new_context))
+              (next stream)
+              (parse_xml_stream stream stack))
+             (else
+               (next stream)
+               (parse_xml_stream stream stack))))
+           (else (collapse stack))))
+
+
+         ((= (state stack) XML_TAG_ATTRIBUTE_VALUE)
+          (cond
+           ((parse stream)
+            (let ((attr:Pair{String*,String*}* (pop_attribute (tag stack))))
+              (cond
+               ((non-null attr)
+                (push_attribute (tag stack) (Pair (first attr) (toString (buffer stack)))))))
+            (cond
+             ((= (peek stream) xmlDoubleQuote)
+              (push stack (replicate_into_literal (top stack)))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlCloseAngleBracket)
+              (if (void_element (tag stack)) (pop_while_matching_tag stack (tag stack)))
+              (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_content_cond XML_TAG_CONTENT)))
+                (pop stack)
+                (push stack new_context))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlSpace)
+              (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_attribute_name_cond XML_TAG_ATTRIBUTE_NAME)))
+                (pop stack)
+                (push stack new_context))
+              (skip_whitespace stream)
+              (parse_xml_stream stream stack))
+             (else
+               (next stream)
+               (parse_xml_stream stream stack))))
+           (else (collapse stack))))
+
+         
+         ((= (state stack) XML_TAG_CONTENT)
+          (cond
+           ((parse stream)
+            (cond
+             ((= (peek stream) xmlDoubleQuote)
+              (push stack (replicate_into_literal (top stack)))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlOpenAngleBracket)
+              (next stream)
+              (cond
+               ((= (peek stream) xmlForwardSlash)
+                (contents (tag stack) (toString (buffer stack)))
+                (let ((new_context:XMLParseContext* (XMLParseContext (tag stack) xml_end_label_cond XML_TAG_END_LABEL)))
+                  (state new_context XML_TAG_END_LABEL)
+                  (pop stack)
+                  (push stack new_context))
+                (next stream)
+                (parse_xml_stream stream stack))
+               (else 
+                (cond
+                 ((no_self_nesting_element (tag stack))
+                  ;;(printf "Element %s does not allow self-nesting ... " (cstring (label (tag stack))))
+                  (let ((str:String* (look_ahead stream 2)))
+                    ;;(printf "next two characters are %s\n" (cstring str))
+                    (cond
+                     ((equal str (label (tag stack)))
+                      ;;(printf "found %s attempting to self-nest. Popping back up to parent\n" (cstring (label (tag stack))))
+                      (contents (tag stack) (toString (buffer stack)))
+                      (pop stack) void)
+                     (else
+                      ;;(printf "luckily the next tag is %s\n" (cstring str))
+                      void))))
+                 (else void))
+                ;;(printf "A child is born!\n")
+                (let* ((child:XMLTag* (XMLTag (String "TBC") null null null (String "") (binary "00000000")))
+                       (new_context:XMLParseContext*  (XMLParseContext child xml_label_cond XML_TAG_LABEL)))
+                    (add_child (tag stack) child)
+                    ;;(printf "Added child tag %s to parent tag %s.\n" (cstring (label child)) (cstring (label (tag stack))))
+                    ;;(printf "Added child tag %s to parent tag %s. Parent now:\n" (cstring (label child)) (cstring (label (tag stack))))
+                    ;;(print (tag stack))
+                    (push stack new_context))
+                  (parse_xml_stream stream stack))))
+             (else
+              (next stream)
+              (parse_xml_stream stream stack))))
+           (else (collapse stack))))
+
+         ((= (state stack) XML_TAG_END_LABEL)
+          (cond
+           ((parse stream)
+            (cond
+             ((= (peek stream) xmlDoubleQuote)
+              (push stack (replicate_into_literal (top stack)))
+              (next stream)
+              (parse_xml_stream stream stack))
+             ((= (peek stream) xmlCloseAngleBracket)
+              (let ((closing_label:String* (toString (buffer stack))))
+                (highlighter "white")
+                ;;(printf "Found closing label %s\n" (cstring closing_label))
+                (highlighter "normal")
+                (let ((finaliser:[bool,XMLParseContext*]*
+                       (lambda (context:XMLParseContext*)
+                         (cond
+                          ((and (non-null context) (non-null (tag context)) (nontrivial (buffer context)))
+                           ;;(printf "Processing context: ") (print_context context) (printf "\n")
+                           (cond
+                            ((= (state context) XML_TAG_CONTENT)
+                             ;;(printf "Setting contents of %s to %s\n" (cstring (label (tag context))) (cstring (buffer context)))
+                             (contents (tag context) (toString (buffer context))) #t)
+                            (else #f)))
+                          (else #f)))))
+                  (let ((first_tail (process_while_not_matching_label stack closing_label finaliser)))
+                    (if (non-null first_tail) (head stack first_tail)))
+                  ;;(printf "Should have skipped over any non-matching labelled contexts.\n Stack is now\n")
+                  ;;(print_context_stack stack)
+                  (let ((second_tail (process_while_matching_tag stack (tag stack) finaliser)))
+                    (if (non-null second_tail) (head stack second_tail)))))
+               (next stream)
+              (parse_xml_stream stream stack))
+             (else
+              (next stream)
+              (parse_xml_stream stream stack))))
+           (else (collapse stack))))
+
+         (else
+          (printf "Shouldn't have gotten into this state %s\n" (name_of_state (state stack)))
+          (collapse stack))))))))
+
+
+
+
+(define *xtmlib-ybot_parser_xtlang-loaded* #t)
