@@ -1,0 +1,44 @@
+;; Include guard
+(if (and (defined? '*xtmlib-libunistring-loaded*) *xtmlib-libunistring-loaded*)
+    (sys:load-escape "libunistring library already loaded"))
+(define *xtmlib-libunistring-loaded* #f)
+
+
+;; load the libplplot dynamic library
+(bind-dylib libunistring
+  (cond ((string=? (sys:platform) "OSX")
+         "libunistring.dylib")
+        ((string=? (sys:platform) "Linux")
+         "libunistring.so")
+        ((string=? (sys:platform) "Windows")
+         "libunistring.dll")
+        (else
+         (begin (print-with-colors 'red 'default #f (print "Error"))
+                (print ": unsupported platform ")
+                (print-with-colors 'yellow 'default #f (print (sys:platform)))))))
+
+
+;;;;;; Library bindings ;;;;;
+
+;; types
+(bind-alias PLFLT float)
+(bind-alias PLINT i32)
+(bind-alias PLBOOL PLINT)
+(bind-alias PLPointer i8*)
+(bind-alias PLSTR i8*)
+
+;; constants
+(bind-val PI double 3.1415926535897932384)
+
+;; functions
+(bind-lib libplplot c_plinit [void]*)
+(bind-lib libplplot c_plenv [void,PLFLT,PLFLT,PLFLT,PLFLT,PLINT,PLINT]*) ;; xmin, xmax, ymin, ymax, lock aspect ratio, axis type
+(bind-lib libplplot c_pllab [void,PLSTR,PLSTR,PLSTR]*) ;; x-axis label, y-axis label, title
+(bind-lib libplplot c_plpoin [void,PLINT,PLFLT*,PLFLT*,PLINT]*) ;; number of observations, x, y, ascii code for symbol
+(bind-lib libplplot c_plsym [void,PLINT,PLFLT*,PLFLT*,PLINT]*) ;; number of observations, x, y, Hershey font code for symbol
+(bind-lib libplplot c_plline [void,PLINT,PLFLT*,PLFLT*]*) ;; number of observations, x, y
+(bind-lib libplplot c_pljoin [void,PLFLT,PLFLT,PLFLT,PLFLT]*) ;;   x1, y1, x2, y2
+(bind-lib libplplot c_plptex [void,PLFLT,PLFLT,PLFLT,PLFLT,PLFLT,PLSTR]*) ;;   x, y, dx, dy, reference point, text 
+(bind-lib libplplot c_plfill [void,PLINT,PLFLT*,PLFLT*]*) ;; number of observations, x, y
+(bind-lib libplplot c_plhist [void,PLINT,PLFLT*,PLFLT,PLFLT,PLINT,PLINT]*) ;; number of obs, data, datamin, datamax, numbins, options
+(bind-lib libplplot c_plend [void]*)

@@ -19,7 +19,7 @@
 ;; (sys:load "libs/core/adt.xtm")
 
 (bind-macro (@ . args)
-            `(pref ,(car args) 0))
+  `(pref ,(car args) 0))
 
 (bind-func non-null:[bool,i8*]*
   (lambda (p)

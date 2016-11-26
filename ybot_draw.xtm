@@ -21,6 +21,7 @@
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
     (glfw_init_and_create_interaction_window (convert width) (convert height))))
 
+;; Note that we must only load and intitialise nanovg after creating a window
 (sys:load "libs/external/nanovg.xtm")
 
 (nvg_init) ;; init nanovg

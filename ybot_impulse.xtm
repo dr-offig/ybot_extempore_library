@@ -1,19 +1,48 @@
 (sys:load "libs/external/sndfile.xtm")
 
-(bind-func create_impulse:[SAMPLE*,i64,i64]*
-  (lambda (frames channels)
-    (let ((buffer:SAMPLE* (zalloc (* frames channels))) (c:i64 0))
-      (dotimes (c channels)
-        (pset! buffer c (convert 1.0)))
-      buffer)))
+;; (bind-func create_impulse:[SAMPLE*,i64,i64]*
+;;   (lambda (frames channels)
+;;     (let ((buffer:SAMPLE* (zalloc (* frames channels))) (c:i64 0))
+;;       (dotimes (c channels)
+;;         (pset! buffer c (convert 1.0)))
+;;       buffer)))
 
 
-(bind-func write-impulse:[void,i64,i64,i8*]*
-  (lambda (frames channels filename)
-    (let ((buffer (create_impulse frames channels)))
-      (write_audio_data filename frames channels buffer)
-      void)))
+;; (bind-func write-impulse:[void,i64,i64,i8*]*
+;;   (lambda (frames channels filename)
+;;     (let ((buffer (create_impulse frames channels)))
+;;       (write_audio_data filename frames channels buffer)
+;;       void)))
+
+;; (write-impulse 22050 2 "/Users/s2805534/Wormhole/supervision/ChrisKaraconstantis/impulse.wav")
+
+(bind-val cycle_period i64 172800)
+(bind-val degree_period i64 480)
+
+(bind-func dsp:DSP
+  (let ((cc:i64 0) (dd:i64 0))
+    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+      (cond
+       ((= channel 0)
+        (set! cc (+ cc 1))
+        (cond
+         ((= cc 1000)
+          (convert 1.0))
+         ((= cc cycle_period)
+          (set! cc 0)
+          (set! dd (+ dd 1))
+          (cond
+           ((> dd 9)
+            (set! dd 0)
+            (set! cc (+ cc degree_period))))
+          (convert 0.0))
+         (else (convert 0.0))))
+       (else (convert 0.0))))))
+
+
+(dsp.start_time (now))
+
+(dsp:set! dsp)
 
 
 
-(write-impulse 22050 2 "/Users/s2805534/Wormhole/supervision/ChrisKaraconstantis/impulse.wav")

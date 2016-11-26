@@ -1,0 +1,160 @@
+;; (if (and (defined? '*xtmlib-ybot-bibtex-loaded*) *xtmlib-ybot-bibtex-loaded*)
+;;     (sys:load-escape "ybot_bibtex library already loaded"))
+;; (define *xtmlib-ybot-bibtex-loaded* #f)
+
+;; ;(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
+;; (if (not (defined? '*ybot-lib-dir*))
+;;     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
+;; (sys:load (string-append *ybot-lib-dir* "/ybot_parser.xtm"))
+
+
+(sys:load-preload-check 'ybot_bibtex)
+(define *xtmlib-ybot_bibtex-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_bibtex.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_bibtex.xtm" 'quiet))
+
+
+;; sanitise html unicode characters
+(bind-func uni2bib:[String*,String*]*
+  (lambda (x)
+    (regex_replace_all "&#([0-9]+);" x "\\unicode{$1}")))
+
+
+;;; Bibtex Entry -- i.e. a single reference ;;;
+(bind-type BibTexEntry <String*,String*,List{Pair{String*,String*}*}*> (constructor . #f) (printer . #f))
+
+(bind-func BibTexEntry:[BibTexEntry*,String*,String*,List{Pair{String*,String*}*}*]*
+  (lambda (type key tags)
+    (let ((reference:BibTexEntry* (alloc)))
+      (tfill! reference type key tags)
+      reference)))
+    
+
+(bind-func type:[String*,BibTexEntry*]* (lambda (reference) (tref reference 0)))
+(bind-func type:[String*,BibTexEntry*,String*]* (lambda (reference type_in) (tset! reference 0 type_in)))
+(bind-func key:[String*,BibTexEntry*]* (lambda (reference) (tref reference 1)))
+(bind-func key:[String*,BibTexEntry*,String*]* (lambda (reference key_in) (tset! reference 1 key_in)))
+(bind-func tags:[List{Pair{String*,String*}*}*,BibTexEntry*]* (lambda (reference) (tref reference 2)))
+(bind-func tags:[List{Pair{String*,String*}*}*,BibTexEntry*,List{Pair{String*,String*}*}*]* (lambda (reference tag_in) (tset! reference 2 tag_in)))
+
+(bind-func toString:[String*,BibTexEntry*]*
+  (lambda (reference)
+    (let* ((start:String* (cat (Str "@") (type reference) (Str "{") (key reference) (Str ",")))
+           (rows:List{String*}*
+            (map (lambda (tag) (cat (Str "\n\t") (first tag) (Str "={") (second tag) (Str "}"))) (tags reference)))
+           (body:String* (join (Str ",") rows)))
+      (cat start body (Str "\n}\n")))))
+
+
+(bind-func print:[void,BibTexEntry*]*
+  (lambda (ref)
+    (printf "%s" (safe_cstr (toString ref)))
+    void))
+
+(bind-func fetch:[String*,BibTexEntry*,String*]*
+  (lambda (reference field)
+    (cond
+     ((and (non-null reference) (non-empty (tags reference)))
+      (let ((cmp:[bool,String*,String*]*
+             (lambda (a b)
+               (equal (lower a) (lower b)))))
+        (let ((match:Pair{String*,String*}*
+               (hash_find:[Pair{String*,String*}*,List{Pair{String*,String*}*}*,String*,[bool,String*,String*]*]*
+                (tags reference) field cmp)))
+          (cond
+           ((non-null match)
+            (second match))
+           (else null)))))
+     (else null))))
+
+
+(bind-func update:[bool,BibTexEntry*,String*,String*]*
+  (lambda (reference field_name new_value)
+    (cond
+     ((and (non-null reference) (non-empty (tags reference)))
+      (let ((cmp:[bool,String*,String*]*
+             (lambda (a b)
+               (equal (lower a) (lower b)))))
+        (let ((match:Pair{String*,String*}*
+               (hash_find:[Pair{String*,String*}*,List{Pair{String*,String*}*}*,String*,[bool,String*,String*]*]*
+                (tags reference) field_name cmp)))
+          (cond
+           ((non-null match)
+            (second match new_value) #t)
+           (else #f)))))
+     (else #f))))
+
+
+
+;;; Bibtex library -- just a list of references ;;;
+(bind-alias bibtexlib List{BibTexEntry*})
+
+(bind-func toString:[String*,bibtexlib*]*
+  (lambda (biblib)
+    (join (Str "\n") (map toString:[String*,BibTexEntry*]* (reverse biblib)))))
+
+
+
+(bind-func print:[void,bibtexlib*]*
+  (lambda (lib)
+    (for-each (lambda (reference) (printf "%s\n" (safe_cstr (toString reference)))) lib)
+    void))
+
+
+(bind-func fetch:[BibTexEntry*,bibtexlib*,String*]*
+  (lambda (lib someKey)
+    (let* ((pred:[bool,BibTexEntry*]*
+            (lambda (tag) (equal (key tag) someKey)))
+           (matches (filter pred lib)))
+      (cond
+       ((non-empty matches)
+        (car matches))
+       (else null)))))
+                  
+ 
+(bind-func filter:[bibtexlib*,bibtexlib*,String*,String*,String*]*
+  (lambda (lib someType someField someValue)
+    (let ((pred:[bool,BibTexEntry*]*
+           (lambda (reference)
+             (and (equal someType (type reference)) (equal someValue (fetch reference someField))))))
+      (filter:[bibtexlib*,[bool,BibTexEntry*]*,bibtexlib*]* pred lib))))
+
+
+(bind-func add_fields:[BibTexEntry*,BibTexEntry*,List{Pair{String*,String*}*}*]*
+  (lambda (reference fields)
+    (tags reference (append fields (tags reference)))
+    reference))
+
+
+(bind-func wrap:[BibTexEntry*,BibTexEntry*,List{Pair{String*,String*}*}*]*
+  (lambda (reference fields)
+    (BibTexEntry (type reference) (key reference) (append fields (tags reference)))))
+
+
+(bind-func update_field:[String*,BibTexEntry*,String*,String*]*
+  (lambda (reference field_name field_value)
+    (let ((cmp:[bool,String*,String*]*
+           (lambda (a b) (equal (lower a) (lower b)))))
+    (hash_set (tags reference) field_name field_value cmp))))
+
+
+
+;; (bind-func test
+;;   (lambda ()
+;;     (let ((reference:BibTexEntry*
+;;            (BibTexEntry
+;;             (Str "inProceedings")
+;;             (Str "Gifford_0045:2016")
+;;             (list (Pair (Str "Title") (Str "Albanian Hedgehogs"))
+;;                   (Pair (Str "Author") (Str "Toby Gifford"))
+;;                   (Pair (Str "Year") (Str "2016"))))))
+;;       (print (toString reference)))))
+
+;;(test)
+
+
+
+(define *xtmlib-ybot_bibtex-loaded* #t)

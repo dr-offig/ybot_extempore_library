@@ -1,0 +1,74 @@
+(sys:load-preload-check 'ybot_abstraction)
+(define *xtmlib-ybot_abstraction-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_parser_xtlang.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_parser_xtlang.xtm" 'quiet))
+
+
+(define *xtmlib-ybot_abstraction-loaded* #t)
+
+
+(bind-type List <!a,List*>)
+(bind-type Tree <!a,List{Tree*}*>)
+
+(bind-type TT <CC,TT*>)
+(bind-type CC <float,TT{CC*}*>)
+
+
+
+;; Formulae
+(bind-func pair:[<!a,!b>*,!a,!b]*
+  (lambda (x y)
+    (let ((output:<!a,!b>* (alloc)))
+      (tfill! output x y)
+      output)))
+
+(bind-macro (induct . args)
+  (let ((loop
+         (lambda (input output)
+           (cond
+            ((not (null? input))
+             (pair (first input) (loop (second input) output)
+  
+  
+  
+
+
+
+(bind-func print:[void,Pair*]*
+  (lambda (p)
+    (if (null? p)
+        (begin (printout "<>") void)
+        (begin (printout "<" (tref p 0) "," (tref p 1) ">")
+               void))))
+
+(bind-func first:[!a,Pair{!a,!b}*]*
+  (lambda (a)
+    (tref a 0)))
+
+(bind-func second:[!b,Pair{!a,!b}*]*
+  (lambda (a)
+    (tref a 1)))
+
+
+;; Mutually recursive
+(bind-func MIN:[!a,!a,!a]*
+  (lambda (a b)
+    (if (< a b) a b)))
+
+
+(bind-func cons:[!a,!b,!a]*)
+
+
+
+(bind-type YTree <i64,List{YTree{i64}*}*>)
+(bind-func test-tree
+  (lambda ()
+    (let ((yt:YTree* (YTree 3 null))
+          (pt:YTree* (YTree 1 (list yt))))
+      1)))
+
+(bind-func fill_in_the_blanks:[String*,String*]
+  (lambda ()))

@@ -41,15 +41,11 @@
     (tset! abstraction 1 (cast in_template_args List{Pair{i64,i8*}*}*))))
 
 
-(bind-func 
-
-
 (bind-func print_shallow:[void,XTAbstraction*,i64]*
   (lambda (abstraction depth)
     (if (non-null abstraction)
         (let* ((tp:String* (template abstraction))
-               (attr:List{Pair{String*,String*}*}*  (attributes tag))
-               (cntnts:String* (contents tag)))
+               (ag:List{Pair{String*,String*}*}*  (template_args abstraction)))
           (doloop (i depth)
             (printf "  "))
           (if (non-null name) (printf "<%s" (cstring name)) (printf "<%s" "unknown"))

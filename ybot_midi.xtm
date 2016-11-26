@@ -1,65 +1,88 @@
-;; Include guard
-(if (and (defined? '*xtmlib-ybot-midi-loaded*) *xtmlib-ybot-midi-loaded*)
-    (sys:load-escape "ybot_midi library already loaded"))
-(define *xtmlib-ybot-midi-loaded* #f)
+(sys:load-preload-check 'ybot_midi)
+(define *xtmlib-ybot_midi-loaded* #f)
 
-(sys:load "libs/external/portmidi.xtm")
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm")
+ (sys:load "libs/external/portmidi.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/adt.xtm" 'quiet)
+ (sys:load "libs/external/portmidi.xtm" 'quiet))
+
+(bind-type MIDIDeviceManager <List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*> (constructor? . #f) (printer? . #f))
+(bind-func MIDIDeviceManager:[MIDIDeviceManager*,List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*]*
+  (lambda (input_devices output_devices)
+    (let ((mdm:MIDIDeviceManager* (alloc)))
+      (tset! mdm 0 input_devices)
+      (tset! mdm 1 output_devices)
+      mdm)))
+
+(bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
+  (lambda (mdm)
+    (tref mdm 0)))
+
+(bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
+  (lambda (mdm in_devices)
+    (tset! mdm 0 in_devices)))
+
+(bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
+  (lambda (mdm)
+    (tref mdm 1)))
+
+(bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
+  (lambda (mdm in_devices)
+    (tset! mdm 1 in_devices)))
+
+(bind-func add_input_device:[void,MIDIDeviceManager*,PmStream*]*
+  (lambda (mdm dev)
+    (input_devices mdm (cons (Pair (cast dev i8*) #t) (input_devices mdm)))
+    void))
+
+(bind-func add_output_device:[void,MIDIDeviceManager*,PmStream*]*
+  (lambda (mdm dev)
+    (output_devices mdm (cons (Pair (cast dev i8*) #t) (output_devices mdm)))
+    void))
+
+
+(bind-func add_all_devices:[void,MIDIDeviceManager*]*
+  (lambda (mdm)
+    (let ((ndev (Pm_CountDevices)))
+      (if (= ndev 0)
+          (println "No MIDI devices found")
+          (begin
+            (println "\n-- Adding MIDI input devices --\n")
+            (doloop (i ndev)
+              (if (= (tref (Pm_GetDeviceInfo i) 3) 1)
+                  (let ((stream (pm_create_input_stream i)))
+                    (add_input_device mdm stream)
+                    (println "  device id" i ":" (Pm_GetDeviceInfo i)))))
+            (println "\n-- Adding MIDI output devices --\n")
+            (doloop (i ndev)
+              (if (= (tref (Pm_GetDeviceInfo i) 4) 1)
+                  (let ((stream (pm_create_output_stream i)))
+                    (add_output_device mdm stream)
+                    (println "  device id" i ":" (Pm_GetDeviceInfo i))))))))))
+
+
+
+(bind-func pm_print_devices
+  (lambda ()
+    (let ((ndev (Pm_CountDevices)))
+      (if (= ndev 0)
+          (println "No MIDI devices found")
+          (begin
+            (println "\n-- MIDI input devices --\n")
+            (doloop (i ndev)
+              (if (= (tref (Pm_GetDeviceInfo i) 3) 1)
+                  (println "  device id" i ":" (Pm_GetDeviceInfo i))))
+            (println "\n-- MIDI output devices --\n")
+            (doloop (i ndev)
+              (if (= (tref (Pm_GetDeviceInfo i) 4) 1)
+                  (println "  device id" i ":" (Pm_GetDeviceInfo i)))))))))
+
 
 (pm_initialize)
 (pm_print_devices)
 
-
-(bind-func midi_input_shazam:[PmStream*,i8*]*
-  (lambda (portname:i8*)
-    (let ((ndev (Pm_CountDevices))
-          (n:i32 (- ndev 1))
-          (loop:[i32,i32]*
-           (lambda (i)
-             (cond
-              ((>= i 0)
-               (if (and
-                    (= (strcmp portname (tref (Pm_GetDeviceInfo i) 2)) (i64toi32 0))
-                    (= (tref (Pm_GetDeviceInfo i) 3) 1))
-                   i
-                   (loop (- i 1))))
-              (else -1)))))
-      (let ((m (loop n)))
-        (if (>= m 0)
-            (pm_create_input_stream m)
-            null)))))
-                   
-
-(bind-func midi_output_shazam:[PmStream*,i8*]*
-  (lambda (portname:i8*)
-    (let ((ndev (Pm_CountDevices))
-          (n:i32 (- ndev 1))
-          (loop:[i32,i32]*
-           (lambda (i)
-             (cond
-              ((>= i 0)
-               (if (and
-                    (= (strcmp portname (tref (Pm_GetDeviceInfo i) 2)) (i64toi32 0))
-                    (= (tref (Pm_GetDeviceInfo i) 4) 1))
-                   i
-                   (loop (- i 1))))
-              (else -1)))))
-      (let ((m (loop n)))
-        (if (>= m 0)
-            (pm_create_output_stream m)
-            null)))))
-
-
-
-;; we'll just create one input and one output device (midi_in and
-;; midi_out), but by passing the appropriate device index arguments to
-;; pm_create_input_stream and pm_create_output_stream you can create
-;; as many as you like
-;;(bind-val midi_in PmStream* (pm_create_input_stream 1))
-;;(bind-val midi_out PmStream* (pm_create_output_stream 2))
-
-;;(define *midi-out*
-;;  (call-as-xtlang
- ;;  midi_out))
 
 (bind-func note_on:[void,PmStream*,i64,i64,i64]*
   (lambda (dev pitch velocity channel)
@@ -110,57 +133,176 @@
     (println "Aftertouch  pitch: " pitch "  value: " value)))
 
 
+(bind-func midi_read_loop:[void,i64,double,MIDIDeviceManager]*
+  (let ((input_buffer:PmEvent* (zalloc PM_MIDI_BUFFER_SIZE))
+        (read_count 0)
+        (i:i32 0))
+    (lambda (time:i64 delta_t:double mdm:MIDIDeviceManager*)
+      (let ((tmp
+       (lambda (device:Pair{i8*,i1}*)
+         (let ((dev:PmStream* (cast (first device) PmStream*))
+               (enabled:i1 (second device)))
+           (if enabled
+               (begin
+                 (set! read_count (Pm_Read dev input_buffer PM_MIDI_BUFFER_SIZE))
+                 (println "read_count:" (convert read_count i32))
+                 (if (> read_count 0)
+                     (dotimes (i read_count)
+                       (cond
+                        ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_NOTE_ON)
+                         (receive_note_on
+                          dev
+                          (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
+                          ))
+                        ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_NOTE_OFF)
+                         (receive_note_off
+                          dev
+                          (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
+                          ))
+                        ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_CC)
+                         (receive_cc
+                          dev
+                          (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
+                          ))
+                        ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_POLY_AFTERTOUCH)
+                         (receive_aftertouch
+                          dev
+                          (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+                          (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
+                          ))
+                        (else
+                         ;(printf "%d\n" (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
+                         ;;(println "midi recv:" i (pref-ptr input_buffer i))
+                         void)))
+                     (else void)))
+               (else void))))))
+        (for-each tmp (input_devices mdm)))
+      (let ((next_time (+ time (convert (* SRd delta_t)))))
+        (cond
+         ((= (midi_read_loop_go) 1)
+          (callback next_time midi_read_loop next_time delta_t mdm)
+          void)
+         (else void))))))
+
+
+
 (bind-func midi_read_loop:[void,i64,double,PmStream*]*
   (let ((input_buffer:PmEvent* (zalloc PM_MIDI_BUFFER_SIZE))
         (read_count 0)
         (i:i32 0))
     (lambda (time:i64 delta_t:double dev:PmStream*)
-      ;; if you have more than one midi input device, you should call
-      ;; Pm_Read on all your devices here
       (set! read_count (Pm_Read dev input_buffer PM_MIDI_BUFFER_SIZE))
-      ;; (println "read_count:" (convert read_count i32))
+      ;(println "read_count:" (convert read_count i32))
       (if (> read_count 0)
           (dotimes (i read_count)
             (cond
-             ((= (msg_type (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i)))) MIDI_NOTE_ON)
+             ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_NOTE_ON)
               (receive_note_on
                dev
-               (Pm_MessageData1 (PmEvent_message (pref-ptr input_buffer i)))
-               (Pm_MessageData2 (PmEvent_message (pref-ptr input_buffer i)))
-               (msg_chan (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i))))
+               (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
                ))
-             ((= (msg_type (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i)))) MIDI_NOTE_OFF)
+             ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_NOTE_OFF)
               (receive_note_off
                dev
-               (Pm_MessageData1 (PmEvent_message (pref-ptr input_buffer i)))
-               (Pm_MessageData2 (PmEvent_message (pref-ptr input_buffer i)))
-               (msg_chan (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i))))
+               (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
                ))
-             ((= (msg_type (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i)))) MIDI_CTRL)
+             ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_CC)
               (receive_cc
                dev
-               (Pm_MessageData1 (PmEvent_message (pref-ptr input_buffer i)))
-               (Pm_MessageData2 (PmEvent_message (pref-ptr input_buffer i)))
-               (msg_chan (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i))))
+               (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
                ))
-             ((= (msg_type (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i)))) MIDI_POLY_TOUCH)
+             ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_POLY_AFTERTOUCH)
               (receive_aftertouch
                dev
-               (Pm_MessageData1 (PmEvent_message (pref-ptr input_buffer i)))
-               (Pm_MessageData2 (PmEvent_message (pref-ptr input_buffer i)))
-               (msg_chan (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i))))
+               (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
+               (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
                ))
-             (else
-              ;(printf "%d\n" (Pm_MessageStatus (PmEvent_message (pref-ptr input_buffer i))))
-              ;;(println "midi recv:" i (pref-ptr input_buffer i))
-              void
-              ))))
-      (let ((next_time (+ time (convert (* 44100. delta_t)))))
+             (else void)))
+          (else void))
+      (let ((next_time (+ time (convert (* SRd delta_t)))))
         (cond
          ((= (midi_read_loop_go) 1)
           (callback next_time midi_read_loop next_time delta_t dev)
           void)
          (else void))))))
+
+
+
+
+(bind-func midi_input_shazam:[PmStream*,i8*]*
+  (lambda (portname:i8*)
+    (let ((ndev (Pm_CountDevices))
+          (n:i32 (- ndev 1))
+          (loop:[i32,i32]*
+           (lambda (i)
+             (cond
+              ((>= i 0)
+               (if (and
+                    (= (strcmp portname (tref (Pm_GetDeviceInfo i) 2)) (i64toi32 0))
+                    (= (tref (Pm_GetDeviceInfo i) 3) 1))
+                   i
+                   (loop (- i 1))))
+              (else -1)))))
+      (let ((m (loop n)))
+        (if (>= m 0)
+            (let ((stream (pm_create_input_stream m)))
+              (midi_read_loop (now) 0.01))
+            null)))))
+                   
+
+(bind-func midi_output_shazam:[PmStream*,i8*]*
+  (lambda (portname:i8*)
+    (let ((ndev (Pm_CountDevices))
+          (n:i32 (- ndev 1))
+          (loop:[i32,i32]*
+           (lambda (i)
+             (cond
+              ((>= i 0)
+               (if (and
+                    (= (strcmp portname (tref (Pm_GetDeviceInfo i) 2)) (i64toi32 0))
+                    (= (tref (Pm_GetDeviceInfo i) 4) 1))
+                   i
+                   (loop (- i 1))))
+              (else -1)))))
+      (let ((m (loop n)))
+        (if (>= m 0)
+            (pm_create_output_stream m)
+            null)))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ;; Scheme MIDI I/O
 
@@ -301,4 +443,4 @@
 ;;;;;;;;;;;;;;;;
 						
 			
-(set! *xtmlib-ybot-midi-loaded* #t)
+(define *xtmlib-ybot_midi-loaded* #t)
