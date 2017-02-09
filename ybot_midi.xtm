@@ -8,59 +8,106 @@
  (sys:load "libs/contrib/ybot/adt.xtm" 'quiet)
  (sys:load "libs/external/portmidi.xtm" 'quiet))
 
-(bind-type MIDIDeviceManager <List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*> (constructor? . #f) (printer? . #f))
-(bind-func MIDIDeviceManager:[MIDIDeviceManager*,List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*]*
-  (lambda (input_devices output_devices)
+
+
+;; We want to model the concept of a 'MIDI Device'. Note that PortMIDI doesn't really
+;; deal with devices, just with streams. We will bundle together streams according to
+;; their name, so that hopefully all the streams (both input and output) that get bundled
+;; together into a device correspond to a particular physical box that is plugged in.
+;; Of course this get's confusing when MIDI devices are daisy chained via MIDI sockets
+;; on the physical device, or via virtual connection in the computers underlying MIDI API.
+;; It is entirely possible that these may be bundled together incorrectly. You can however
+;; programmatically reconfigure the bundling if you know which stream names should
+;; belong together
+(bind-type MIDIDevice <List{Pair{i32,i8*}*}*,List{Pair{i32,i8*}*}*> (constructor? . #f) (printer? . #f))
+
+
+
+(bind-func MIDIDevice:[MIDIDevice*,List{Pair{i32,i8*}*}*,List{Pair{i32,i8*}*}*]*
+  (lambda (input_ports output_ports)
+    (let ((md:MIDIDevice* (alloc)))
+      (tfill! md input_ports output_ports)
+      md)))
+
+
+(bind-func input_ports:[List{Pair{i32,i8*}*}*,MIDIDevice*]*
+  (lambda (device)
+    (tref device 0)))
+
+
+(bind-func output_ports:[List{Pair{i32,i8*}*}*,MIDIDevice*]*
+  (lambda (device)
+    (tref device 1)))
+
+
+(bind-type MIDIDeviceManager <List{MIDIDevice*}*> (constructor? . #f) (printer? . #f))
+(bind-func MIDIDeviceManager:[MIDIDeviceManager*,List{MIDIDevice*}*]*
+  (lambda (devices)
     (let ((mdm:MIDIDeviceManager* (alloc)))
-      (tset! mdm 0 input_devices)
-      (tset! mdm 1 output_devices)
+      (tset! mdm 0 devices)
       mdm)))
 
-(bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
-  (lambda (mdm)
-    (tref mdm 0)))
-
-(bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
-  (lambda (mdm in_devices)
-    (tset! mdm 0 in_devices)))
-
-(bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
-  (lambda (mdm)
-    (tref mdm 1)))
-
-(bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
-  (lambda (mdm in_devices)
-    (tset! mdm 1 in_devices)))
-
-(bind-func add_input_device:[void,MIDIDeviceManager*,PmStream*]*
-  (lambda (mdm dev)
-    (input_devices mdm (cons (Pair (cast dev i8*) #t) (input_devices mdm)))
-    void))
-
-(bind-func add_output_device:[void,MIDIDeviceManager*,PmStream*]*
-  (lambda (mdm dev)
-    (output_devices mdm (cons (Pair (cast dev i8*) #t) (output_devices mdm)))
-    void))
+(bind-func devices:[List{MIDIDevice*}*,MIDIDeviceManager*]*
+  (lambda (manager)
+    (tref manager 0)))
 
 
-(bind-func add_all_devices:[void,MIDIDeviceManager*]*
-  (lambda (mdm)
-    (let ((ndev (Pm_CountDevices)))
-      (if (= ndev 0)
-          (println "No MIDI devices found")
-          (begin
-            (println "\n-- Adding MIDI input devices --\n")
-            (doloop (i ndev)
-              (if (= (tref (Pm_GetDeviceInfo i) 3) 1)
-                  (let ((stream (pm_create_input_stream i)))
-                    (add_input_device mdm stream)
-                    (println "  device id" i ":" (Pm_GetDeviceInfo i)))))
-            (println "\n-- Adding MIDI output devices --\n")
-            (doloop (i ndev)
-              (if (= (tref (Pm_GetDeviceInfo i) 4) 1)
-                  (let ((stream (pm_create_output_stream i)))
-                    (add_output_device mdm stream)
-                    (println "  device id" i ":" (Pm_GetDeviceInfo i))))))))))
+
+
+;; MIDIDeviceManager data type. Fields are input_streams, output_streams
+;; (bind-type MIDIDeviceManager <List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*> (constructor? . #f) (printer? . #f))
+;; (bind-func MIDIDeviceManager:[MIDIDeviceManager*,List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*]*
+;;   (lambda (input_devices output_devices)
+;;     (let ((mdm:MIDIDeviceManager* (alloc)))
+;;       (tset! mdm 0 input_devices)
+;;       (tset! mdm 1 output_devices)
+;;       mdm)))
+
+;; (bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
+;;   (lambda (mdm)
+;;     (tref mdm 0)))
+
+;; (bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
+;;   (lambda (mdm in_devices)
+;;     (tset! mdm 0 in_devices)))
+
+;; (bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
+;;   (lambda (mdm)
+;;     (tref mdm 1)))
+
+;; (bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
+;;   (lambda (mdm in_devices)
+;;     (tset! mdm 1 in_devices)))
+
+;; (bind-func add_input_device:[void,MIDIDeviceManager*,PmStream*]*
+;;   (lambda (mdm dev)
+;;     (input_devices mdm (cons (Pair (cast dev i8*) #t) (input_devices mdm)))
+;;     void))
+
+;; (bind-func add_output_device:[void,MIDIDeviceManager*,PmStream*]*
+;;   (lambda (mdm dev)
+;;     (output_devices mdm (cons (Pair (cast dev i8*) #t) (output_devices mdm)))
+;;     void))
+
+
+;; (bind-func add_all_devices:[void,MIDIDeviceManager*]*
+;;   (lambda (mdm)
+;;     (let ((ndev (Pm_CountDevices)))
+;;       (if (= ndev 0)
+;;           (println "No MIDI devices found")
+;;           (begin
+;;             (println "\n-- Adding MIDI input devices --\n")
+;;             (doloop (i ndev)
+;;               (if (= (tref (Pm_GetDeviceInfo i) 3) 1)
+;;                   (let ((stream (pm_create_input_stream i)))
+;;                     (add_input_device mdm stream)
+;;                     (println "  device id" i ":" (Pm_GetDeviceInfo i)))))
+;;             (println "\n-- Adding MIDI output devices --\n")
+;;             (doloop (i ndev)
+;;               (if (= (tref (Pm_GetDeviceInfo i) 4) 1)
+;;                   (let ((stream (pm_create_output_stream i)))
+;;                     (add_output_device mdm stream)
+;;                     (println "  device id" i ":" (Pm_GetDeviceInfo i))))))))))
 
 
 

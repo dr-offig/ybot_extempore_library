@@ -1,11 +1,11 @@
 (sys:load "libs/external/sndfile.xtm")
 
-;; (bind-func create_impulse:[SAMPLE*,i64,i64]*
-;;   (lambda (frames channels)
-;;     (let ((buffer:SAMPLE* (zalloc (* frames channels))) (c:i64 0))
-;;       (dotimes (c channels)
-;;         (pset! buffer c (convert 1.0)))
-;;       buffer)))
+(bind-func create_impulse:[SAMPLE*,i64,i64]*
+  (lambda (frames channels)
+    (let ((buf:SAMPLE* (zalloc (* frames channels))) (c:i64 0))
+      (dotimes (c channels)
+        (pset! buf c (convert 1.0)))
+      buf)))
 
 
 ;; (bind-func write-impulse:[void,i64,i64,i8*]*

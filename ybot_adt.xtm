@@ -1,14 +1,3 @@
-;; ;; Include guard
-;; (if (and (defined? '*xtmlib-ybot-adt-loaded*) *xtmlib-ybot-adt-loaded*)
-;;     (sys:load-escape "ybot_adt library already loaded"))
-;; (define *xtmlib-ybot-adt-loaded* #f)
-
-;; ;; Dependencies
-;; (if (not (defined? '*ybot-lib-dir*))
-;;     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;; (sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
-
-
 (sys:load-preload-check 'ybot_adt)
 (define *xtmlib-ybot_adt-loaded* #f)
 
@@ -20,7 +9,7 @@
 
 
 
-;;;;;;;;;;; Pair stuff ;;;;;;;;;;;;;;;;
+;;;;;;;;;;; Pair stuff - extends libs/core/adt.xtm ;;;;;;;;;;;;;;;;
 
 (bind-func first:[!a,Pair{!a,!b}*,!a]*
   (lambda (p a)
@@ -32,7 +21,7 @@
 
 
 
-;;;; More generalised associative array with comparator ;;;
+;;;; More generalised associative array with comparator - extends libs/core/adt.xtm ;;;
 
 (bind-func hash_find:[Pair{!w,!v}*,List{Pair{!w,!v}*}*,!w,[bool,!w,!w]*]*
   (lambda (hash key cmp)
@@ -50,6 +39,17 @@
             (second (car hash))
             (hash_get (cdr hash) key cmp)))))
 
+
+(bind-func hash_add:[!v,List{Pair{!w,!v}*}*,!w,[bool,!w,!w]*]*
+  (lambda (hash key value cmp)
+    (if (null? hash)
+        (convert null)
+        (set! hash (append hash (list (Pair key value)))))
+    value))
+
+
+
+
 (bind-func hash_set:[!v,List{Pair{!w,!v}*}*,!w,!v,[bool,!w,!w]*]*
   "set (or overwrite) value for key in dict (returns the old value)"
   (lambda (hash key value cmp)
@@ -63,176 +63,6 @@
                 (begin (append hash (list (Pair key value)))
                        (convert null))
                 (hash_set (cdr hash) key value cmp))))))
-
-
-
-;;;;;;;;;;;;;;;;;;; Corner case stuff ;;;;;;;;;;;;;;;;;;;
-;;(bind-func for-all-but-last:[void,[!a,!b]*,[!a,!b]*List{!b}*]*
-
-
-
-;;;;;;;;;;;;;;;; Loop Array ;;;;;;;;;;;;;
-;; (bind-type LoopArray <!a,i64>) 
-
-;; (bind-func lref:[!a,LoopArray:<!a,i64>*,i64]*
-;;   (lambda (myArray index)
-;;     (pref (tref myArray 0) (modulo index (tref myArray 1)))))
-
-;; (bind-func lset:[void,LoopArray*,i64,!a]*
-;;   (lambda (myArray index value)
-;;     (pset! (tref myArray 0) (modulo index (tref myArray 1)) value)
-;;     void))
-
-;(bind-func loop_array_test:[void]*
-;  (lambda ()
-;    (let* ((data:float* (zalloc 8))
-;           (anArray (LoopArray data 8))
-;           (i:i64 0))
-;      (pfill! data (dtof 0.0) (dtof 1.1) (dtof 2.2) (dtof 3.3) (dtof 4.4) (dtof 5.5) (dtof 6.6) (dtof 7.7))
-;      (lset anArray 3 (dtof 3.9))
-;      (dotimes (i 20)
-;        (println (lref anArray i)))
-;      void)))
-    
-;;;;;;;;;;;;;;;; Shift Array ;;;;;;;;;;;
-;; (bind-type ShiftArray <LoopArray:<!a,i64>*,i64>)
-
-;; (bind-func DelayLine:[ShiftArray:<LoopArray*,i64>*,i64]*
-;;   (lambda (lngth:i64)
-;;     (let* ((data:float* (zalloc lngth))
-;;            (loopArray (LoopArray data lngth))
-;;            (shiftArray (ShiftArray loopArray 0)))
-;;       shiftArray)))
-
-;; (bind-func sa_shift:[!a,ShiftArray*,!a]*
-;;   (lambda (shiftArray value)
-;;     (let* ((loopArray (tref shiftArray 0))
-;;            (lngth (tref loopArray 1))
-;;            (offset (tref shiftArray 1))
-;;            (output (lref loopArray offset)))
-;;       (lset loopArray (- offset 1) value)
-;;       (tset! shiftArray 1 (imod (+ offset 1) lngth))
-;;       output)))
-
-;; (bind-func sa_peek:[!a,ShiftArray*,i64]*
-;;   (lambda (shiftArray index)
-;;       (let* ((loopArray (tref shiftArray 0))
-;;            (lngth (tref loopArray 1))
-;;            (offset (tref shiftArray 1)))
-;;         (lref loopArray (+ offset index)))))
- 
-;(bind-func test_shift_array:[ShiftArray:<LoopArray*,i64>*,i64]*
-;  (lambda (lngth:i64)
-;    (let* ((data:float* (zalloc lngth))
-;           (loopArray (LoopArray data lngth))
-;           (shiftArray (ShiftArray loopArray 0))
-;           (i:i64 0))
-;      (dotimes (i 20)
-;        (println (sa_shift shiftArray (i64tof i))))
-;      shiftArray)))
-
-
-;; Generic tree: data, parent, children (opaque i8* hiding List{YTree*}*)
-;; (bind-type YTree <!a,YTree*,i8*>)
-
-;; (bind-func YTree:[YTree*,!a,YTree*,List{YTree*}]*
-;;   (lambda (data parent children)
-;;     (let ((root:YTree* (alloc)))
-;;       (tfill! root data parent (cast children i8*))
-;;       root)))
-
-;; (bind-func data:[!a,YTree*]* (lambda (tree:YTree*) (tref tree 0)))
-;; (bind-func data:[!a,YTree*,!a]* (lambda (tree:YTree* data_in) (tset! tree 0 data_in)))
-;; (bind-func parent:[YTree*,YTree*]* (lambda (tree:YTree*) (tref tree 1)))
-;; (bind-func parent:[YTree*,YTree*,YTree*]* (lambda (tree:YTree* parent_in:YTree*) (tset! tree 1 parent_in)))
-;; (bind-func children:[List{YTree*}*,YTree*]* (lambda (tree:YTree*) (cast (tref tree 2) List{YTree*}*)))
-;; (bind-func children:[List{YTree*}*,YTree*,List{YTree*}*]* (lambda (tree:YTree* children_in:List{YTree*}*) (cast (tset! tag 2 (cast children_in i8*)) List{YTree*}*)))
-
-;; (bind-func satisfies:[List{YTree*}*,YTree*,[bool,YTree*]*]*
-;;   (lambda (root condition)
-;;     (flatten
-;;      (map
-;;       (lambda (child)
-;;         (if (condition child)
-;;             (cons child (satisfies child condition))
-;;             (satisfies child condition)))
-;;       (children root)))))
-
-
-
-
-;; (bind-func test_i64_ytree:[YTree:<i64,YTree*,YTree*,i64>*]*
-;;   (lambda ()
-;;     (let ((output (make_node 3)))
-;;       output)))
-
-;; (test_i64_ytree)
-
-;; (bind-func make_node:[YTree:<!a,YTree*,YTree*,i64>*,!a]*
-;;   (lambda (x:!a)
-;;     (let ((output (YTree x null null 0)))
-;;       (tset! output 1 output)
-;;       output)))
-
-;; (bind-func test_specialised_node:[YTree:<i64,YTree*,YTree*,i64>*,i64]*
-;;   (lambda (x:i64)
-;;     (make_node x)))
-
-
-;; (bind-func make_node:[YTree:<!a,YTree*,YTree*,i64>*,!a]*
-;;   (lambda (x:!a)
-;;     (let ((output:YTree:<!a,YTree*,YTree*,i64>* (zalloc)))
-;;       (tset! output 0 x)
-;;       (tset! output 1 output)
-;;       (tset! output 2 null)
-;;       (tset! output 3 0)
-;;       output)))
-
-;; (bind-func make_node_i64:[YTree:<i64,YTree*,YTree*,i64>*,i64]*
-;;   (lambda (x:i64)
-;;     (make_node x)))
-
-;; (bind-func make_node_i64:[YTree:<i64,YTree*,YTree*,i64>*,i64]*
-;;   (lambda (x:i64)
-;;     (let ((output:YTree:<i64,YTree*,YTree*,i64>* (zalloc)))
-;;       (tset! output 0 x)
-;;       (tset! output 1 output)
-;;       (tset! output 2 null)
-;;       (tset! output 3 0)
-;;       output)))
-
-;; (make_node_i64 4)
-
-;; (bind-func test2_i64_ytree:[YTree:<i64,YTree*,YTree*,i64>*]*
-;;   (lambda ()
-;;     (let ((output (make_node 3)))
-;;       output)))
-
-
-;; (bind-func make_node_i64:[Tree:<i64,Tree*,Tree*,i64>*,i64]*
-;;   (lambda (n:i64)
-;;     (let ((output:Tree:<i64,Tree*,Tree*,i64>* (zalloc)))
-;;       (tset! output 0 n)
-;;       (tset! output 1 output)
-;;       (tset! output 2 null)
-;;       (tset! output 3 0))
-;;     output))
-
-
-;; (bind-func make_node_int:[Tree:<i64,Tree*,Tree*,i64>*]*
-;;   (lambda ()
-;;     (make_node 3)))
-
-;; (bind-func test_o_rama:[Tree:<String*,Tree*,Tree*,i64>*,String*]*
-;;   (lambda (str:String*)
-;;     (make_node str)))
-
-;; (bind-func make_scrabble_tree:[Tree:<String*,Tree*,Tree*,i64>*,i64]*
-;;   (lambda (depth:i64)
-;;     (let* ((x:i8* (let ((_x:i8* (zalloc 1))) (pset! _x 0 'a') _x))
-;;            (root:String* (String 1 x))
-;;            (output (make_node x)))
-;;       output)))
 
 
 (define *xtmlib-ybot_adt-loaded* #t)

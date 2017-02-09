@@ -1,0 +1,13 @@
+;; Persistent hardware configuration
+;; At the moment this only deals with MIDI hardware
+;; Ideally it would deal with audio hardware etc
+;; but at the moment its not possible to change audio
+;; devices once extempore has started, so a different
+;; approach would be required.
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm")
+ (sys:load "libs/external/portmidi.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/adt.xtm" 'quiet)
+ (sys:load "libs/external/portmidi.xtm" 'quiet))
+
