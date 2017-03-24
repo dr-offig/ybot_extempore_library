@@ -1,11 +1,10 @@
-(if (and (defined? '*xtmlib-ybot-dynamic-buffer-loaded*) *xtmlib-ybot-dynamic-buffer-loaded*)
-    (sys:load-escape "ybot_dynamic_buffer library already loaded"))
-(define *xtmlib-ybot-dynamic-buffer-loaded* #f)
+(sys:load-preload-check 'ybot_dynamic_buffer)
+(define *xtmlib-ybot_dynamic_buffer-loaded* #f)
 
-(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
-(if (not (defined? '*ybot-lib-dir*))
-    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-(sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_base.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_base.xtm" 'quiet))
 
 
 ;; Extra string functions
@@ -307,4 +306,4 @@
       
 ;; (test-tail)
 
-(set! *xtmlib-ybot-dynamic-buffer-loaded* #t)
+(set! *xtmlib-ybot_dynamic_buffer-loaded* #t)

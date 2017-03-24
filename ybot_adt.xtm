@@ -8,7 +8,6 @@
 
 
 
-
 ;;;;;;;;;;; Pair stuff - extends libs/core/adt.xtm ;;;;;;;;;;;;;;;;
 
 (bind-func first:[!a,Pair{!a,!b}*,!a]*
@@ -63,6 +62,405 @@
                 (begin (append hash (list (Pair key value)))
                        (convert null))
                 (hash_set (cdr hash) key value cmp))))))
+
+
+
+;;;;;;;;;; FIFO ;;;;;;;;;;;
+;; CharFIFO data type: data pointer, start, length, capacity, max_capacity, mutex
+(bind-type CharFIFO <i8*,i64,i64,i64,i64,i8*> (constructor? . #f) (printer? . #f))
+(bind-func CharFIFO:[CharFIFO*,i64,i64]*
+  (lambda (capacity max_capacity)
+    (let ((output:CharFIFO* (alloc))
+          (data:i8* (halloc capacity))
+          (mutex:i8* (mutex_create))) 
+      (tset! output 0 data)
+      (tset! output 1 0)
+      (tset! output 2 0)
+      (tset! output 3 capacity)
+      (tset! output 4 max_capacity)
+      (tset! output 5 mutex)
+      output)))
+
+
+
+(bind-func data:[i8*,CharFIFO*]* (lambda (q) (tref q 0)))
+(bind-func data:[i8*,CharFIFO*,i8*]* (lambda (q value) (tset! q 0 value)))
+(bind-func start:[i64,CharFIFO*]* (lambda (q) (tref q 1)))
+(bind-func start:[i64,CharFIFO*,i64]* (lambda (q value) (tset! q 1 value)))
+(bind-func size:[i64,CharFIFO*]* (lambda (q) (tref q 2)))
+(bind-func size:[i64,CharFIFO*,i64]* (lambda (q value) (tset! q 2 value)))
+(bind-func capacity:[i64,CharFIFO*]* (lambda (q) (tref q 3)))
+(bind-func capacity:[i64,CharFIFO*,i64]* (lambda (q value) (tset! q 3 value)))
+
+(bind-func CharFIFO_d:[void,CharFIFO*]*
+  (lambda (q)
+    (free (tref q 0))
+    (mutex_destroy (tref q 5))
+    void))
+
+
+(bind-func lock:[void,CharFIFO*]*
+  (lambda (q)
+    (mutex_lock (tref q 5))
+    void))
+
+(bind-func trylock:[bool,CharFIFO*]*
+  (lambda (q)
+    (= 1:i32 (mutex_trylock (tref q 5)))))
+
+(bind-func unlock:[void,CharFIFO*]*
+  (lambda (q)
+    (mutex_unlock (tref q 5))
+    void))
+
+(bind-func end:[i64,CharFIFO*]*
+  (lambda (q)
+    (modulo (+ (start q) (size q)) (capacity q))))
+
+
+(bind-func peek:[i8,CharFIFO*,i64]*
+  (lambda (q n)
+    (pref (data q) (modulo (+ (start q) n) (capacity q)))))
+
+
+(bind-func push:[void,CharFIFO*,i8]*
+  (lambda (q val)
+    (cond
+     ((trylock q)
+      ;(printf "Queue %p has size: %lld   and capacity:  %lld\n" q (size:[i64,CharFIFO*]* q) (capacity q))
+      (cond
+       ((< (size:[i64,CharFIFO*]* q) (capacity q))
+        ;(colour_pencil "black") (printf "%c" val) (colour_pencil "white")
+        (pset! (data q) (end q) val)
+        (size:[i64,CharFIFO*,i64]* q (+ 1 (size:[i64,CharFIFO*]* q)))
+        (unlock q)
+        void)
+       ((<= (* 2 (capacity q)) (tref q 4))
+        (let* ((n:i64 (* 2 (capacity q)))
+               (i:i64 0)
+               (old_data:i8* (data q))
+               (new_data:i8* (halloc n)))
+          (dotimes (i n)
+            (pset! new_data i (peek q i)))
+          (data q new_data)
+          (free old_data)
+          (start q 0)
+          (capacity q n)
+          (unlock q)
+          (printf "Expanding CharFIFO capacity to %lld\n" n)
+          (push q val)
+          void))
+       (else
+        (pset! (data q) (end q) val)
+        (start:[i64,CharFIFO*,i64]* q (+ 1 (start:[i64,CharFIFO*]* q)))
+        ;;(if (= 0 (modulo (start:[i64,CharFIFO*]* q) 1024)) (printf "Queue full, overwriting oldest data\n"))
+        (unlock q)
+        void)))
+     (else
+      (printf "Push failed due to locked FIFO\n")
+      void))))
+
+
+(bind-func pop:[i8,CharFIFO*,bool*]*
+  (lambda (q success)
+    (cond
+     ((trylock q)
+      (cond
+       ((< 0 (size:[i64,CharFIFO*]* q))
+        (let ((output:i8 (pref (data q) (start q))))
+          (start q (modulo (+ 1 (start q)) (capacity q)))
+          (size:[i64,CharFIFO*,i64]* q (- (size:[i64,CharFIFO*]* q) 1))
+          (pset! success 0 #t)
+          (unlock q)
+          output))
+     (else
+      (pset! success 0 #f)
+      (unlock q)
+      ;(printf "\n-------- Queue Empty -------\n")
+      0:i8)))
+     (else
+      (pset! success 0 #f)
+      (printf "\nPop failed due to locked FIFO\n")
+      0:i8))))
+
+
+
+(bind-func print:[void,CharFIFO*]*
+  (lambda (q)
+    (cond
+     ((trylock q)
+      (printf "Queue %p   " q)
+      (printout ">>  ")
+      (doloop (i (size:[i64,CharFIFO*]* q))
+        (printout (peek q (- (- (size:[i64,CharFIFO*]* q) 1) i)))
+        (printout "  "))
+      (println ">>")
+      (unlock q))
+     (else
+      (printf "Print failed due to locked FIFO\n")
+      void))))
+
+;;;;;;;; end CharFIFO ;;;;;;;;
+
+
+;;;;;;;;;;;; Float FIFO ;;;;;;;;
+;; FloatFIFO data type: data pointer, start, length, capacity, max_capacity, mutex
+(bind-type FloatFIFO <float*,i64,i64,i64,i64,i8*> (constructor? . #f) (printer? . #f))
+(bind-func FloatFIFO:[FloatFIFO*,i64,i64]*
+  (lambda (capacity max_capacity)
+    (let ((output:FloatFIFO* (alloc))
+          (data:float* (halloc capacity))
+          (mutex:i8* (mutex_create))) 
+      (tset! output 0 data)
+      (tset! output 1 0)
+      (tset! output 2 0)
+      (tset! output 3 capacity)
+      (tset! output 4 max_capacity)
+      (tset! output 5 mutex)
+      output)))
+
+
+(bind-func data:[float*,FloatFIFO*]* (lambda (q) (tref q 0)))
+(bind-func data:[float*,FloatFIFO*,float*]* (lambda (q value) (tset! q 0 value)))
+(bind-func start:[i64,FloatFIFO*]* (lambda (q) (tref q 1)))
+(bind-func start:[i64,FloatFIFO*,i64]* (lambda (q value) (tset! q 1 value)))
+(bind-func size:[i64,FloatFIFO*]* (lambda (q) (tref q 2)))
+(bind-func size:[i64,FloatFIFO*,i64]* (lambda (q value) (tset! q 2 value)))
+(bind-func capacity:[i64,FloatFIFO*]* (lambda (q) (tref q 3)))
+(bind-func capacity:[i64,FloatFIFO*,i64]* (lambda (q value) (tset! q 3 value)))
+
+(bind-func FloatFIFO_d:[void,FloatFIFO*]*
+  (lambda (q)
+    (free (tref q 0))
+    (mutex_destroy (tref q 5))
+    void))
+
+
+(bind-func lock:[void,FloatFIFO*]*
+  (lambda (q)
+    (mutex_lock (tref q 5))
+    void))
+
+(bind-func trylock:[bool,FloatFIFO*]*
+  (lambda (q)
+    (= 1:i32 (mutex_trylock (tref q 5)))))
+
+(bind-func unlock:[void,FloatFIFO*]*
+  (lambda (q)
+    (mutex_unlock (tref q 5))
+    void))
+
+(bind-func end:[i64,FloatFIFO*]*
+  (lambda (q)
+    (modulo (+ (start q) (size q)) (capacity q))))
+
+
+(bind-func peek:[float,FloatFIFO*,i64]*
+  (lambda (q n)
+    (pref (data q) (modulo (+ (start q) n) (capacity q)))))
+
+
+(bind-func push:[void,FloatFIFO*,float]*
+  (lambda (q val)
+    (cond
+     ((trylock q)
+      ;(printf "Queue %p has size: %lld   and capacity:  %lld\n" q (size:[i64,CharFIFO*]* q) (capacity q))
+      (cond
+       ((< (size:[i64,FloatFIFO*]* q) (capacity q))
+        ;(colour_pencil "black") (printf "%c" val) (colour_pencil "white")
+        (pset! (data q) (end q) val)
+        (size:[i64,FloatFIFO*,i64]* q (+ 1 (size:[i64,FloatFIFO*]* q)))
+        (unlock q)
+        void)
+       ((<= (* 2 (capacity q)) (tref q 4))
+        (let* ((n:i64 (* 2 (capacity q)))
+               (i:i64 0)
+               (old_data:float* (data q))
+               (new_data:float* (halloc n)))
+          (dotimes (i n)
+            (pset! new_data i (peek q i)))
+          (data q new_data)
+          (free old_data)
+          (start q 0)
+          (capacity q n)
+          (unlock q)
+          (printf "Expanding FloatFIFO capacity to %lld\n" n)
+          (push q val)
+          void))
+       (else
+        (pset! (data q) (end q) val)
+        (start:[i64,FloatFIFO*,i64]* q (+ 1 (start:[i64,FloatFIFO*]* q)))
+        ;;(if (= 0 (modulo (start:[i64,CharFIFO*]* q) 1024)) (printf "Queue full, overwriting oldest data\n"))
+        (unlock q)
+        void)))
+     (else
+      (printf "Push failed due to locked FIFO\n")
+      void))))
+
+
+(bind-func pop:[float,FloatFIFO*,bool*]*
+  (lambda (q success)
+    (cond
+     ((trylock q)
+      (cond
+       ((< 0 (size:[i64,FloatFIFO*]* q))
+        (let ((output:float (pref (data q) (start q))))
+          (start q (modulo (+ 1 (start q)) (capacity q)))
+          (size:[i64,FloatFIFO*,i64]* q (- (size:[i64,FloatFIFO*]* q) 1))
+          (pset! success 0 #t)
+          (unlock q)
+          output))
+     (else
+      (pset! success 0 #f)
+      (unlock q)
+      ;(printf "\n-------- Queue Empty -------\n")
+      0:float)))
+     (else
+      (pset! success 0 #f)
+      (printf "\nPop failed due to locked FIFO\n")
+      0:float))))
+
+
+
+(bind-func print:[void,FloatFIFO*]*
+  (lambda (q)
+    (cond
+     ((trylock q)
+      (printf "Queue %p   " q)
+      (printout ">>  ")
+      (doloop (i (size:[i64,FloatFIFO*]* q))
+        (printout (peek q (- (- (size:[i64,FloatFIFO*]* q) 1) i)))
+        (printout "  "))
+      (println ">>")
+      (unlock q))
+     (else
+      (printf "Print failed due to locked FIFO\n")
+      void))))
+
+
+
+;; (bind-func test_queue
+;;   (lambda ()
+;;     (let ((q (CharFIFO 4)) (empty:bool* (alloc)))
+;;       (pset! empty 0 #f)
+;;       (push q 65:i8) (push q 66:i8) (push q 67:i8) (push q 68:i8) (print q)
+;;       (printf "Popped value %c\n" (pop q empty)) (print q)
+;;       (printf "Popped value %c\n" (pop q empty)) (print q)
+;;       (push q 69:i8) (push q 70:i8) (print q)
+;;       (push q 0.7) (print q)
+;;       void)))
+
+;;;;;;;; end FloatFIFO ;;;;;;;;;
+
+
+
+
+;;;;;;;;;;;; Nonblocking Float FIFO ;;;;;;;;
+;; NBFloatFIFO data type: data pointer, start, length, capacity, max_capacity, mutex
+(bind-type NonBlockFIFO <float*,i64,i64,i64,i64> (constructor? . #f) (printer? . #f))
+(bind-func NonBlockFIFO:[NonBlockFIFO*,i64,i64]*
+  (lambda (capacity max_capacity)
+    (let ((output:FloatFIFO* (alloc))
+          (data:float* (halloc capacity)))
+      (tset! output 0 data)
+      (tset! output 1 0)
+      (tset! output 2 0)
+      (tset! output 3 capacity)
+      (tset! output 4 max_capacity)
+      output)))
+
+
+(bind-func data:[float*,NonBlockFIFO*]* (lambda (q) (tref q 0)))
+(bind-func data:[float*,NonBlockFIFO*,float*]* (lambda (q value) (tset! q 0 value)))
+(bind-func start:[i64,NonBlockFIFO*]* (lambda (q) (tref q 1)))
+(bind-func start:[i64,NonBlockFIFO*,i64]* (lambda (q value) (tset! q 1 value)))
+(bind-func size:[i64,NonBlockFIFO*]* (lambda (q) (tref q 2)))
+(bind-func size:[i64,NonBlockFIFO*,i64]* (lambda (q value) (tset! q 2 value)))
+(bind-func capacity:[i64,NonBlockFIFO*]* (lambda (q) (tref q 3)))
+(bind-func capacity:[i64,NonBlockFIFO*,i64]* (lambda (q value) (tset! q 3 value)))
+
+(bind-func NonBlockFIFO_d:[void,NonBlockFIFO*]*
+  (lambda (q)
+    (free (tref q 0))
+    void))
+
+
+(bind-func end:[i64,NonBlockFIFO*]*
+  (lambda (q)
+    (modulo (+ (start q) (size q)) (capacity q))))
+
+
+(bind-func peek:[float,NonBlockFIFO*,i64]*
+  (lambda (q n)
+    (pref (data q) (modulo (+ (start q) n) (capacity q)))))
+
+
+(bind-func push:[void,NonBlockFIFO*,float]*
+  (lambda (q val)
+    (cond
+     ((< (size:[i64,NonBlockFIFO*]* q) (capacity q))
+      (pset! (data q) (end q) val)
+      (size:[i64,NonBlockFIFO*,i64]* q (+ 1 (size:[i64,NonBlockFIFO*]* q)))
+      void)
+     ((<= (* 2 (capacity q)) (tref q 4))
+      (let* ((n:i64 (* 2 (capacity q)))
+             (i:i64 0)
+             (old_data:float* (data q))
+             (new_data:float* (halloc n)))
+        (dotimes (i n)
+          (pset! new_data i (peek q i)))
+        (data q new_data)
+        (free old_data)
+        (start q 0)
+        (capacity q n)
+        ;;(printf "Expanding NonBlockFIFO capacity to %lld\n" n)
+        (push q val)
+        void))
+     (else
+      (pset! (data q) (end q) val)
+      (start:[i64,NonBlockFIFO*,i64]* q (+ 1 (start:[i64,NonBlockFIFO*]* q)))
+      void))))
+
+
+(bind-func pop:[float,NonBlockFIFO*,bool*]*
+  (lambda (q success)
+    (cond
+     ((< 0 (size:[i64,NonBlockFIFO*]* q))
+      (let ((output:float (pref (data q) (start q))))
+        (start q (modulo (+ 1 (start q)) (capacity q)))
+        (size:[i64,NonBlockFIFO*,i64]* q (- (size:[i64,NonBlockFIFO*]* q) 1))
+        (pset! success 0 #t)
+        output))
+     (else
+      (pset! success 0 #f)
+      0:float))))
+     
+
+(bind-func print:[void,NonBlockFIFO*]*
+  (lambda (q)
+    (printf "Queue %p   " q)
+    (printout ">>  ")
+    (doloop (i (size:[i64,NonBlockFIFO*]* q))
+      (printout (peek q (- (- (size:[i64,NonBlockFIFO*]* q) 1) i)))
+      (printout "  "))
+    (println ">>")))
+
+;;;;;;;; end Nonblocking FloatFIFO ;;;;;;;;;
+
+
+
+(bind-func caar:[!a,List{!a}*]* (lambda (x) (car (car x))))
+(bind-func cadr:[!a,List{!a}*]* (lambda (x) (car (cdr x))))
+(bind-func caaar:[!a,List{!a}*]* (lambda (x) (car (car (car x)))))
+(bind-func caadr:[!a,List{!a}*]* (lambda (x) (car (car (cdr x)))))
+(bind-func caddr:[!a,List{!a}*]* (lambda (x) (car (cdr (cdr x)))))
+(bind-func caaaar:[!a,List{!a}*]* (lambda (x) (car (car (car (car x))))))
+(bind-func caaadr:[!a,List{!a}*]* (lambda (x) (car (car (car (cdr x))))))
+(bind-func caaddr:[!a,List{!a}*]* (lambda (x) (car (car (cdr (cdr x))))))
+(bind-func cadddr:[!a,List{!a}*]* (lambda (x) (car (cdr (cdr (cdr x))))))
+(bind-func caddddr:[!a,List{!a}*]* (lambda (x) (car (cdr (cdr (cdr (cdr x)))))))
+
+
 
 
 (define *xtmlib-ybot_adt-loaded* #t)
