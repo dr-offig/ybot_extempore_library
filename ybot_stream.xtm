@@ -1,0 +1,77 @@
+(sys:load-preload-check 'ybot_stream)
+(define *xtmlib-stream-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/core/xthread.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm")
+ (sys:load "libs/contrib/ybot/ybot_dynamic_buffer.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/core/xthread.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet)
+ (sys:load "libs/contrib/ybot/ybot_dynamic_buffer.xtm" 'quiet))
+
+
+(bind-alias mutex_t i8*)
+(bind-func ybot_trylock:[bool,mutex_t]*
+  (lambda (mutex)
+    (= 0 (i32toi64 (mutex_trylock mutex)))))
+
+
+;; source type is a closure [!a,bool*]*
+
+;; stream type consists of a source, and two buffers (read and write)
+
+;; stream buffer
+(bind-type YbotStreamBuffer <!a
+
+(bind-type YbotAudioSourceBuffer <SAMPLE*,i64,i64,SAMPLE,i64,i64,i64,YbotAudioSource_t,i64,mutex_t*,i64>)
+
+(bind-func YbotAudioSourceBuffer_c:[YbotAudioSourceBuffer*,YbotAudioSource_t,i64,i64,SAMPLE]*
+  (lambda (source frames channels rate)
+    (let ((output:YbotAudioSourceBuffer* (zalloc))
+          (mutex_ptr:mutex_t* (zalloc))
+          (data:SAMPLE* (halloc (* frames channels))))
+      (pset! mutex_ptr 0 (mutex_create))
+      (tset! output 0 data)
+      (tset! output 1 frames)
+      (tset! output 2 channels)
+      (tset! output 3 rate)
+      (tset! output 7 source)
+      (tset! output 9 mutex_ptr)
+      (tset! output 10 -1)
+      output)))
+
+
+(bind-func YbotAudioSourceBuffer_d:[void,YbotAudioSourceBuffer*]*
+  (lambda (buffer)
+    (mutex_destroy (pref (tref buffer 9) 0))
+    (free (tref buffer 0))
+    void))
+
+(bind-func YASB_lock:[void,YbotAudioSourceBuffer*]*
+  (lambda (buffer)
+    (mutex_lock (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YASB_unlock:[void,YbotAudioSourceBuffer*]*
+  (lambda (buffer)
+    (mutex_unlock (pref (tref buffer 9) 0))
+    void))
+
+(bind-func YASB_trylock:[bool,YbotAudioSourceBuffer*]*
+  (lambda (buffer)
+    (= 0 (i32toi64 (mutex_trylock (pref (tref buffer 9) 0))))))
+
+
+(bind-func YASB_ready:[bool,YbotAudioSourceBuffer*]*
+  (lambda (buffer)
+    (if (YASB_trylock buffer) (begin (YASB_unlock buffer) #t) #f)))
+
+
+
+
+
+
+
+
+(define *xtmlib-stream-loaded* #t)

@@ -13,13 +13,18 @@
 (sys:load "libs/external/glfw3.xtm")
 (sys:load "libs/core/math.xtm")
 
-(bind-val width float 1280.)
-(bind-val height float 800.)
+;(bind-val width float 800.)
+;(bind-val height float 600.)
+
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_interaction_window (convert width) (convert height))))
 
 (bind-val window GLFWwindow*
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_interaction_window (convert width) (convert height))))
+    (glfw_init_and_create_fullscreen_interaction_window)))
 
 ;; Note that we must only load and intitialise nanovg after creating a window
 (sys:load "libs/external/nanovg.xtm")
@@ -28,33 +33,40 @@
 (bind-val vg NVGcontext* (nvg_create_context))
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
 
-(bind-val FRAMERATE float 10.)
+(bind-val width float (glfw_get_window_width window))
+(bind-val height float (glfw_get_window_height window))
+
+(bind-val cx float (/ width 2.0:float))
+(bind-val cy float (/ height 2.0:float))
+
+
+(bind-val FRAMERATE float 25.)
 (bind-val FRAMEDURATION float (/ 1. FRAMERATE))
 (bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
 
-;; (bind-func draw_meter
-;;   (lambda (i:i64 n:i64 v:float mn:float mx:float fill:NVGcolor* stroke:NVGcolor*)
-;;     (let* ((h:float (/ height (i64tof n)))
-;;            (d:float (if (> h 40.) 20. (/ h 2.)))
-;;            (r:float (/ d 2.))
-;;            (x:float (* width 0.1))
-;;            (w:float (* width 0.8))
-;;            (t:float (+ x (* w (/ (- v mn) (- mx mn))))) 
-;;            (y:float (+ (* height 0.1) (* (* height 0.8) (/ (i64tof i) (i64tof n))))))
-;;       (nvgBeginPath vg)
-;;       (tfill! fill 1.0 1.0 0.0 1.0)
-;;       (nvgRoundedRect vg x y w d r)
-;;       (nvgFillColor vg fill)
-;;       (nvgFill vg)
-;;       (tfill! stroke 0.0 0.0 1.0 1.0)
-;;       (nvgStrokeColor vg stroke)
-;;       (nvgStroke vg)
-;;       (nvgBeginPath vg)
-;;       (tfill! fill .0 0.0 1.0 1.0)
-;;       ;;(nvgCircle vg (+ t r) (+ y r) r)
-;;       (nvgRect vg t y d d)
-;;       (nvgFillColor vg fill)
-;;       (nvgFill vg))))
+(bind-func draw_meter
+  (lambda (i:i64 n:i64 v:float mn:float mx:float fill:NVGcolor* stroke:NVGcolor*)
+    (let* ((h:float (/ height (i64tof n)))
+           (d:float (if (> h 40.) 20. (/ h 2.)))
+           (r:float (/ d 2.))
+           (x:float (* width 0.1))
+           (w:float (* width 0.8))
+           (t:float (+ x (* w (/ (- v mn) (- mx mn))))) 
+           (y:float (+ (* height 0.1) (* (* height 0.8) (/ (i64tof i) (i64tof n))))))
+      (nvgBeginPath vg)
+      (tfill! fill 1.0 1.0 0.0 1.0)
+      (nvgRoundedRect vg x y w d r)
+      (nvgFillColor vg fill)
+      (nvgFill vg)
+      (tfill! stroke 0.0 0.0 1.0 1.0)
+      (nvgStrokeColor vg stroke)
+      (nvgStroke vg)
+      (nvgBeginPath vg)
+      (tfill! fill .0 0.0 1.0 1.0)
+      ;;(nvgCircle vg (+ t r) (+ y r) r)
+      (nvgRoundedRect vg t y d d r)
+      (nvgFillColor vg fill)
+      (nvgFill vg))))
 
 
 ;; (bind-func draw_buffer
@@ -77,26 +89,147 @@
 ;;         (nvgLineTo vg (xn (+ i cc)) (+ mid_y (*  mid_y (pref buffer (+ i cc))))))
 ;;       (nvgStrokeColor vg stroke)
 ;;       (nvgStroke vg))))
-      
 
-(bind-func draw_frame
-  (let ((fill (NVGcolor 0.0 0.0 1.0 0.01))
-        (bgc (NVGcolor 0.0 0.0 0.0 0.01))
-        (stroke (NVGcolor 0.0 0.0 1.0 0.5))
-        (i 0) (n 4))
-    (lambda ()
-      (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
-      (nvgResetTransform vg)
-      (nvgFillColor vg bgc)
+
+(bind-func _clear_background
+  (lambda (vg color)
+    (nvgFillColor vg color)
       (nvgBeginPath vg)
-      (nvgRect vg 0. 0. width height)
+      (nvgRect vg 0. 0.  width height)
       (nvgFill vg)
-      (nvgEndFrame vg))))
+      void))
+
+(bind-func clear_background
+  (lambda (vg color)
+    (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+    (_clear_background vg color)
+    (nvgEndFrame vg)
+    (glfwSwapBuffers window)
+    (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+    (_clear_background vg color)
+    (nvgEndFrame vg)
+    (glfwSwapBuffers window)
+    void))
+
+(bind-alias curve_t [float,float]*)
+(bind-func straight_line:curve_t (lambda (x) x))
+(bind-func sine_curve:curve_t (lambda (x) (+ 0.5 (* 0.5 (sin (* PIf (- x 0.5)))))))
+
+(bind-alias aniparam_t [float,i64]*)
+
+(bind-func animate_parameter:[aniparam_t,i64,i64,float,float,curve_t,i64]*
+  (lambda (start_time duration start_value end_value curve loop_style)
+    (let ((end_time:i64 (+ start_time duration))
+          (triggered_next:bool #f))
+      (cond
+       ((= 0 duration)  ;; instant move to end_value
+        (lambda (time:i64) end_value))
+       (else
+        (cond
+         
+         ((= loop_style 1)  ;; plain looping (phasor style)
+          (lambda (time)
+            (cond
+             ((<= time start_time) start_value)
+             ((>= time end_time)
+              (set! start_time (+ start_time duration))
+              (set! end_time (+ start_time duration))
+              end_value)
+             (else
+              (let* ((t:float (/ (i64tof (- time start_time)) (i64tof duration)))
+                     (s (curve t)))
+                (+ (* t start_value) (* (- 1.0:float t) end_value)))))))
+
+         ((= loop_style 2)  ;; forward-backward looping
+          (lambda (time)
+            (cond
+             ((<= time start_time) start_value)
+             ((>= time end_time)
+              (cond
+               ((< time (+ start_time (* 2 duration)))
+                (let* ((t:float (/ (i64tof (- time (+ start_time duration))) (i64tof duration)))
+                     (s (curve t)))
+                  (+ (* t end_value) (* (- 1.0:float t) start_value))))
+               (else
+                (set! start_time (+ start_time (* 2 duration)))
+                (set! end_time (+ start_time duration))
+                end_value)))
+             (else
+              (let* ((t:float (/ (i64tof (- time start_time)) (i64tof duration)))
+                     (s (curve t)))
+                (+ (* t start_value) (* (- 1.0:float t) end_value)))))))
+            
+         (else  ;; Don't loop
+          (lambda (time)
+            (cond
+             ((<= time start_time) start_value)
+             ((>= time end_time) end_value)
+             (else
+              (let* ((t:float (/ (i64tof (- time start_time)) (i64tof duration)))
+                     (s (curve t)))
+                (+ (* t start_value) (* (- 1.0:float t) end_value))))))))))))) 
+
+
+
+
+;; (bind-val g1 float*)
+;; ($ (printf "%2.2f\n" g1))
+
+
+;; (bind-func draw_frame
+;;   (let ((bgc (NVGcolor 0.0 0.0 0.0 0.1)))
+;;     (lambda ()
+;;       (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+;;       (nvgResetTransform vg)
+;;       ( _clear_background vg bgc)  ;; Fade to black background
+;;       (nvgBeginPath vg)
+;;       (draw_meter 1 1 (pref g1 0) 0.0 1024.0 (NVGcolor_hex #xFFFFFF) (NVGcolor_hex #xFF00FF))
+;;       ;;(nvgCircle vg (x (now)) (y (now)) (radius (now)))
+;;       ;;(nvgStrokeColor vg (NVGcolor 1.0 0.0 0.0 0.5))
+;;       ;;(nvgStrokeWidth vg 1.0)
+;;       ;(nvgStroke vg)
+;;       (nvgEndFrame vg))))
     
 
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;; Crazy image generators #1 ;;;;;;;;;;
+
+;; animate_parameter arguments
+;; start_time duration start_value end_value curve loop_style)
+
+(bind-func draw_frame:[void]*
+  (let ((bgc (NVGcolor 1.0 1.0 1.0 0.01))
+        (rd:aniparam_t (animate_parameter (now) 12345 0.0:float 0.5:float sine_curve 2))
+        (gr:aniparam_t (animate_parameter (now) 23456 0.0:float 0.5:float sine_curve 2))
+        (bl:aniparam_t (animate_parameter (now) 34567 0.0:float 0.5:float sine_curve 2))
+        (toggle:bool #f))
+    (lambda ()
+      (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+      ;;(nvgResetTransform vg)
+      ;;( _clear_background vg bgc)
+      (nvgBeginPath vg)
+      (let ((fgc (NVGcolor (rd (now)) (gr (now)) (bl (now)) 0.5))
+            (x:float (* width (dtof (random))))
+            (y:float (* height (dtof (random))))
+            (d:float (* height 0.15:float (dtof (random)))))
+        (cond
+         (toggle
+          (nvgRect vg x 0.0:float d height)
+          (nvgCircle vg x y d))
+         (else
+          (nvgRect vg 0.0:float y width d)
+          (nvgCircle vg x y d)))
+        (set! toggle (not toggle))
+        (nvgFillColor vg fgc)
+        (nvgFill vg))
+      (nvgEndFrame vg))))
+      
+
+
 
 (bind-func nvg_draw_loop
   (lambda (time:i64 delta:float)
@@ -107,13 +240,14 @@
     (let ((next_time (+ time (convert delta))))
       (callback next_time nvg_draw_loop next_time delta))))
 
+($ (nvg_clear))
 ($ (nvg_draw_loop (now) FRAMEDELTA))
-
+($ (clear_background vg (NVGcolor 0.0 0.0 0.0 0.0)))
 
 ;; to stop the draw loop, eval this version of nvg_draw_loop
-;(bind-func nvg_draw_loop
-;  (lambda (time:i64 delta:float)
-;    (println "nvg_draw_loop callback stopped")
-;    void))
+(bind-func nvg_draw_loop
+ (lambda (time:i64 delta:float)
+   (println "nvg_draw_loop callback stopped")
+   void))
 
 (set! *xtmlib-ybot-draw-loaded* #t)
