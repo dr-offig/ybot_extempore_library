@@ -138,7 +138,7 @@
              (else
               (let* ((t:float (/ (i64tof (- time start_time)) (i64tof duration)))
                      (s (curve t)))
-                (+ (* t start_value) (* (- 1.0:float t) end_value)))))))
+                (+ (* t end_value) (* (- 1.0:float t) start_value)))))))
 
          ((= loop_style 2)  ;; forward-backward looping
           (lambda (time)
@@ -227,8 +227,137 @@
         (nvgFillColor vg fgc)
         (nvgFill vg))
       (nvgEndFrame vg))))
-      
 
+
+
+;; Ripple model
+(bind-val one_sec i64 44100)
+(bind-val one_secf float 44100.0:float)
+(bind-val sos float 34000.0)
+(bind-val slow_down i64 1000)
+(bind-val ww float (/ height 16.0))
+
+(bind-func time2samples:[i64,float]*
+  (lambda (t)
+    (ftoi64 (* t 44100.0))))
+
+(bind-func samples2time:[float,i64]*
+  (lambda (n)
+    (/ (i64tof n) 44100.0:float)))
+
+
+(bind-func time2cm:[float,float]*
+  (lambda (t:float)
+    (* t sos)))
+
+(bind-func cm2time:[float,float]*
+  (lambda (d:float)
+    (/ d sos)))
+
+(bind-func cm2samples:[i64,float]*
+  (lambda (d:float)
+    (ftoi64 (* one_secf (cm2time d)))))
+
+(bind-func samples2cm:[float,i64]*
+  (lambda (n:i64)
+    (time2cm (samples2time n))))
+
+
+(bind-func cm2pixels:[float,float]*
+  (lambda (d:float)
+    (* (/ d 4.71) ww)))
+
+(bind-func pixels2cm:[float,float]*
+  (lambda (p:float)
+    (* (/ p ww) 4.71)))
+
+(bind-func pixels2samples:[i64,float]*
+  (lambda (p)
+    (cm2samples (pixels2cm p))))
+
+(bind-func samples2pixels:[float,i64]*
+  (lambda (n:i64)
+    (cm2pixels (samples2cm n))))
+
+
+
+(bind-func draw_frame:[void]*
+  (let* ((bgc (NVGcolor 0.0 0.0 0.0 0.1)) (slow_down:i64 1000)
+         (ww:float (/ height 16.0))
+         (d1:float 0.0) (d8:float 0.0)
+         (d2:float (* ww (/ 2.46 4.71))) (d7:float (* ww (/ 2.46 4.71)))
+         (d3:float (* ww (/ 9.83 4.71))) (d6:float (* ww (/ 9.83 4.71)))
+         (d4:float (* ww (/ 4.91 4.71))) (d5:float (* ww (/ 4.91 4.71)))
+         (x1:float 0.0) (y1:float (* ww 7.0)) (delay1:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d1)))))
+         (x2:float 0.0) (y2:float (* ww 7.5)) (delay2:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d2)))))
+         (x3:float 0.0) (y3:float (* ww 8.0)) (delay3:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d3)))))
+         (x4:float 0.0) (y4:float (* ww 8.5)) (delay4:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d4)))))
+         (x5:float 0.0) (y5:float (* ww 9.0)) (delay5:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d5)))))
+         (x6:float 0.0) (y6:float (* ww 9.5)) (delay6:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d6)))))
+         (x7:float 0.0) (y7:float (* ww 10.0)) (delay7:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d7)))))
+         (x8:float 0.0) (y8:float (* ww 10.5)) (delay8:i64 (ftoi64 (* one_secf (distance2time (* 2.0:float d8)))))
+         (r1:aniparam_t (animate_parameter (+ (now) (* slow_down delay1)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r2:aniparam_t (animate_parameter (+ (now) (* slow_down delay2)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r3:aniparam_t (animate_parameter (+ (now) (* slow_down delay3)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r4:aniparam_t (animate_parameter (+ (now) (* slow_down delay4)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r5:aniparam_t (animate_parameter (+ (now) (* slow_down delay5)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r6:aniparam_t (animate_parameter (+ (now) (* slow_down delay6)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r7:aniparam_t (animate_parameter (+ (now) (* slow_down delay7)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1))
+         (r8:aniparam_t (animate_parameter (+ (now) (* slow_down delay8)) (* slow_down (distance2samples width)) 0.0:float width straight_line 1)))
+    (lambda ()
+      (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+      ;;(nvgResetTransform vg)
+      ( _clear_background vg bgc)
+      (nvgBeginPath vg)
+      (let ((fgc (NVGcolor 1.0 1.0 1.0 0.5)))
+        (nvgCircle vg x1 y1 (r1 (now)))
+        (nvgCircle vg x2 y2 (r2 (now)))
+        (nvgCircle vg x3 y3 (r3 (now)))
+        (nvgCircle vg x4 y4 (r4 (now)))
+        (nvgCircle vg x5 y5 (r5 (now)))
+        (nvgCircle vg x6 y6 (r6 (now)))
+        (nvgCircle vg x7 y7 (r7 (now)))
+        (nvgCircle vg x8 y8 (r8 (now)))
+        (nvgStrokeColor vg fgc)
+        (nvgStroke vg))
+      (nvgEndFrame vg))))
+
+(draw_frame.delay3)
+
+
+
+;;;;;;;;;;;; Crazy image generators #1 ;;;;;;;;;;
+
+;; animate_parameter arguments
+;; start_time duration start_value end_value curve loop_style)
+
+(bind-func draw_frame:[void]*
+  (let ((bgc (NVGcolor 1.0 1.0 1.0 0.01))
+        (rd:aniparam_t (animate_parameter (now) 12345 0.0:float 0.5:float sine_curve 2))
+        (gr:aniparam_t (animate_parameter (now) 23456 0.0:float 0.5:float sine_curve 2))
+        (bl:aniparam_t (animate_parameter (now) 34567 0.0:float 0.5:float sine_curve 2))
+        (toggle:bool #f))
+    (lambda ()
+      (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+      ;;(nvgResetTransform vg)
+      ;;( _clear_background vg bgc)
+      (nvgBeginPath vg)
+      (let ((fgc (NVGcolor (rd (now)) (gr (now)) (bl (now)) 0.5))
+            (x:float (* width (dtof (random))))
+            (y:float (* height (dtof (random))))
+            (d:float (* height 0.15:float (dtof (random)))))
+        (cond
+         (toggle
+          (nvgRect vg x 0.0:float d height)
+          (nvgCircle vg x y d))
+         (else
+          (nvgRect vg 0.0:float y width d)
+          (nvgCircle vg x y d)))
+        (set! toggle (not toggle))
+        (nvgFillColor vg fgc)
+        (nvgFill vg))
+      (nvgEndFrame vg))))
+      
 
 
 (bind-func nvg_draw_loop
@@ -240,7 +369,7 @@
     (let ((next_time (+ time (convert delta))))
       (callback next_time nvg_draw_loop next_time delta))))
 
-($ (nvg_clear))
+($ (clear_background vg (NVGcolor 0.0 0.0 0.0 1.0)))
 ($ (nvg_draw_loop (now) FRAMEDELTA))
 ($ (clear_background vg (NVGcolor 0.0 0.0 0.0 0.0)))
 
