@@ -1,0 +1,171 @@
+(sys:load-preload-check 'ybot_stream_parser)
+(define *xtmlib-ybot_parser-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm")
+ (sys:load "libs/contrib/librs232.xtm")
+ (sys:load "libs/contrib/ybot/ybot_dynamic_buffer.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet)
+ (sys:load "libs/contrib/librs232.xtm" 'quiet)
+ (sys:load "libs/contrib/ybot/ybot_dynamic_buffer.xtm" 'quiet))
+
+
+;;;;;;;;;; Serial port management ;;;;;;;;;;;
+
+(bind-func list-ports:[i64]*
+  (lambda ()
+    (let ((n:i64 (i32toi64 (comEnumerate)))
+          (loop:[i64,i64]*
+           (lambda (i:i64)
+             (cond
+              ((< i n)
+               (printf "Port %d:\t%s\n" i (comGetPortName (i64toi32 i)))
+               (loop (+ i 1)))
+              (else n)))))
+      (loop 0))))
+
+
+(bind-func serial_port_id:[i64,i8*]*
+  (lambda (port_name)
+    (let* ((n:i64 (i32toi64 (comEnumerate)))
+           (loop:[i64,i64]*
+            (lambda (i:i64)
+              (cond
+               ((and (<= 0 i) (< i n))
+                (let* ((name:i8* (comGetPortName (i64toi32 i)))
+                       (a (strlen name)) (b (strlen port_name)) (c (if (< a b) a b)))
+                  (cond
+                   ((= 0:i32 (strncmp name port_name c)) i)
+                   (else
+                    (loop (+ i 1))))))
+               (else
+                (printf "No serial port found matching name %s\n" port_name)
+                -1)))))
+        (loop 0))))
+
+
+(bind-func openSerialPort
+  (lambda (index:i64)
+    (comOpen (i64toi32 index) (i64toi32 115200))))
+
+
+(bind-func readIntoBuffer:[i64,i64,StringStreamBuffer*]*
+  (lambda (index:i64 buf:StringStreamBuffer*)
+      (let ((loop:[i64]*
+             (lambda ()
+               (let* ((nr:i32 (comRead (i64toi32 index) buffer 256))
+                      (data:String* (String (i32toi64 nr) buffer)))
+                 (cond
+                  ((> nr 0:i32)
+                   (colour_pencil "red") (printf "%s\n" buffer) (colour_pencil "blue")
+                   (parseSerial data)
+                   (loop))
+                  (else 0))))))
+        (loop)))))
+
+
+;; Character streams
+;(bind-type CharStream <apr_file_t*,bool*>)
+
+;(bind-alias char_source_t [i8,bool*]*)
+(bind-type SerialPortStream <i64,bool*>)
+
+(bind-func end_of_stream:[bool,SerialPortStream*]*
+  (lambda (stream)
+    (@ (tref stream 1))))
+
+(bind-func next:[i8,SerialPortStream*]*
+  (lambda (stream)
+    (comRead (tref stream 0) (tref stream 1))))
+
+(bind-func peek:[i8,CharStream*]*
+  (lambda (stream)
+    (yfs_peek_byte (tref stream 0))))
+
+(bind-func goto:[bool,CharStream*,i64]*
+  (lambda (stream index)
+    (let ((new_index:i64 (yfs_file_seek (tref stream 0) index)))
+      (= new_index index))))
+
+(bind-func goto_start:[bool,CharStream*]*
+  (lambda (stream)
+    (goto stream 0)))
+    
+(bind-func playhead:[i64,CharStream*]*
+  (lambda (stream)
+    (yfs_current_playhead (tref stream 0))))
+
+(bind-func step_back:[bool,CharStream*]*
+  (lambda (stream)
+    (goto stream (- (playhead stream) 1))))
+
+(bind-func skip_whitespace:[bool,CharStream*]*
+  (lambda (stream)
+    (cond
+     ((not (end_of_stream stream))
+      (let ((c:i8 (next stream)))
+        (cond ;;   space        tab          CR             LF
+         ((or (= c 32:i8) (= c 9:i8) (= c 13:i8) (= c 10:i8))
+          (skip_whitespace stream))
+         (else
+          (step_back stream)
+          #t))))
+     (else #f))))
+
+
+(bind-func look_ahead:[String*,CharStream*,i64]*
+  (lambda (stream:CharStream* n:i64)
+    (let* ((i:i64 0)
+           (ahead:i8* (salloc (+ n 1)))
+           (look_loop:[bool,i64]*
+              (lambda (cc)
+                (cond
+                 ((end_of_stream stream) #f)
+                 ((<= n cc) #t)
+                 (else
+                  (pset! ahead cc (next stream))
+                  (look_loop (+ cc 1)))))))
+        (cond
+         ((look_loop 0)
+          (pset! ahead n 0:i8)
+          (goto stream (- (playhead stream) n))
+          (String ahead))
+         (else
+          (goto stream (- (playhead stream) n))
+          null)))))
+  
+  
+
+(bind-func look_ahead_match:[bool,CharStream*,String*]*
+  (lambda (stream:CharStream* str:String*)
+    (cond
+     ((or (null? str) (null? stream)) #f)
+     (else
+      (let* ((i:i64 0) (n:i64 (length str))
+             (ahead:i8* (salloc (+ n 1)))
+             (look_loop:[bool,i64]*
+              (lambda (cc)
+                (cond
+                 ((end_of_stream stream) #f)
+                 ((<= n cc) #t)
+                 (else
+                  (pset! ahead cc (next stream))
+                  (look_loop (+ cc 1)))))))
+        (cond
+         ((look_loop 0)
+          (pset! ahead n 0:i8)
+          (goto stream (- (playhead stream) n))
+          (= 0:i32 (strcmp ahead (cstring str))))
+         (else
+          (goto stream (- (playhead stream) n))
+          #f)))))))
+                 
+(bind-alias parser_t [bool,CharStream*]*)                            
+
+
+;; Halting conditions for contextual parsers
+(bind-alias halting_cond_t [bool,i8]*)
+
+
+(define *xtmlib-ybot_parser-loaded* #t)

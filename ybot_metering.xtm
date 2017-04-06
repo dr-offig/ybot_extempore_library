@@ -1,0 +1,126 @@
+(sys:load-preload-check 'ybot_metering)
+(define *xtmlib-ybot_metering-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/core/math.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/external/glfw3.xtm" 'quiet)
+ (sys:load "libs/core/math.xtm" 'quiet))
+
+;(bind-val width float 800.)
+;(bind-val height float 600.)
+
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_interaction_window (convert width) (convert height))))
+
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_fullscreen_interaction_window)))
+
+;; Note that we must only load and intitialise nanovg after creating a window
+(sys:load "libs/external/nanovg.xtm")
+
+(nvg_init) ;; init nanovg
+(bind-val vg NVGcontext* (nvg_create_context))
+(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
+
+(bind-val width float (glfw_get_window_width window))
+(bind-val height float (glfw_get_window_height window))
+
+(bind-val cx float (/ width 2.0:float))
+(bind-val cy float (/ height 2.0:float))
+
+(bind-val FRAMERATE float 25.)
+(bind-val FRAMEDURATION float (/ 1. FRAMERATE))
+(bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
+
+(bind-val GLOBAL_NUM_METERS i64 8)
+(bind-val GLOBAL_METERING |8,[float]*|)
+(bind-val GLOBAL_METERING_MAXS |8,float|)
+(bind-val GLOBAL_METERING_MINS |8,float|)
+
+($ (doloop (i:i64 8) (aset! GLOBAL_METERING i (lambda () 0.0:float))))
+
+($ (println ((aref GLOBAL_METERING 0))))
+
+(bind-func attach_meter
+  (lambda (i:i64 f:[float]* mn:float mx:float)
+    (aset! GLOBAL_METERING i f)
+    (aset! GLOBAL_METERING_MINS i mn)
+    (aset! GLOBAL_METERING_MAXS i mx)
+    void))
+
+
+(bind-func draw_meter
+  (lambda (i:i64)
+    (let* ((n:i64 GLOBAL_NUM_METERS)
+           (v:float ((aref GLOBAL_METERING i)))
+           (mn:float (aref GLOBAL_METERING_MINS i))
+           (mx:float (aref GLOBAL_METERING_MAXS i))
+           (h:float (/ height (i64tof n)))
+           (d:float (if (> h 40.) 20. (/ h 2.)))
+           (r:float (/ d 2.))
+           (x:float (* width 0.1))
+           (w:float (* width 0.8))
+           (t:float (+ x (* w (/ (- v mn) (- mx mn))))) 
+           (y:float (+ (* height 0.1) (* (* height 0.8) (/ (i64tof i) (i64tof n)))))
+           (fill:NVGcolor* (NVGcolor 1.0 1.0 0.0 1.0))
+           (stroke:NVGcolor* (NVGcolor 0.0 0.0 1.0 1.0)))
+      (nvgBeginPath vg)
+      (nvgRoundedRect vg x y w d r)
+      (nvgFillColor vg fill)
+      (nvgFill vg)
+      (nvgStrokeColor vg stroke)
+      (nvgStroke vg)
+      (nvgBeginPath vg)
+      (tfill! fill .0 0.0 1.0 1.0)
+      (nvgRoundedRect vg (+ x 2.0) (+ y 2.0) (- t x 4.0) (- d 4.0) (/ (- d 4.0) 2.0))
+      (nvgFillColor vg fill)
+      (nvgFill vg))))
+
+
+(bind-func _clear_background
+  (lambda (vg color)
+    (nvgFillColor vg color)
+      (nvgBeginPath vg)
+      (nvgRect vg 0. 0.  width height)
+      (nvgFill vg)
+      void))
+
+
+(bind-func draw_frame
+  (let ((bgc (NVGcolor 0.0 0.0 0.0 0.1)))
+    (lambda ()
+      (let ((i:i64 0))
+        (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+        (nvgResetTransform vg)
+        ( _clear_background vg bgc)  ;; Fade to black background
+        (dotimes (i GLOBAL_NUM_METERS)
+          (draw_meter i))
+        (nvgEndFrame vg)))))
+    
+
+
+(bind-func nvg_draw_loop
+  (lambda (time:i64 delta:float)
+    ;;(nvg_clear)
+    (draw_frame)
+    (glfwPollEvents)
+    (glfwSwapBuffers window)    
+    (let ((next_time (+ time (convert delta))))
+      (callback next_time nvg_draw_loop next_time delta))))
+
+($ (nvg_draw_loop (now) FRAMEDELTA))
+
+
+;; to stop the draw loop, eval this version of nvg_draw_loop
+;; (bind-func nvg_draw_loop
+;;  (lambda (time:i64 delta:float)
+;;    (println "nvg_draw_loop callback stopped")
+;;    void))
+
+(set! *xtmlib-ybot_metering-loaded* #t)
