@@ -45,7 +45,7 @@
 (bind-val FRAMEDURATION float (/ 1. FRAMERATE))
 (bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
 
-($ (set! FRAMERATE 200.:float))
+($ (set! FRAMERATE 60.:float))
 ($ (set! FRAMEDELTA (* SAMPLERATE (/ 1.:float FRAMERATE))))
 
 
@@ -66,7 +66,7 @@
 (bind-val YBOT_SCOPE_SCAN_FREQ float 5.0:float)
 (bind-val YBOT_SCOPE_MUTEX i8* (mutex_create))
 
-($ (set! YBOT_SCOPE_SCAN_FREQ 30.:float))
+($ (set! YBOT_SCOPE_SCAN_FREQ 2.0:float))
 
 
 (bind-func YbotScopeLog:[void,i64,float]*
@@ -101,7 +101,6 @@
 
 (bind-val fbo FBO*)
 (bind-val ss_quad_vao VAO*)
-($ (println FRAMEDELTA))
 
 (call-as-xtlang
  (let ((fbw_ptr:i32* (salloc))
@@ -166,7 +165,6 @@
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/background_with_transparency.frag"))))
 
 
-
 ;; init data
 ($ (afill! screen_vert_data
          ;; pos      colour
@@ -214,7 +212,7 @@
 
 
 (bind-func draw_frame:[void]*
-  (let ((drawbufs_ptr:GLenum* (zalloc)) (t:float 0.0) (y:float 0.0))
+  (let ((drawbufs_ptr:GLenum* (zalloc)) (t:float 0.0) (y:float 0.0) (dt:float 0.0))
     ;;(glEnable GL_LINE_SMOOTH)
     (glEnable GL_BLEND)
     (glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
@@ -228,8 +226,8 @@
 
       (glUseProgram screen_prog)
       (let ((loc (glGetUniformLocation screen_prog "view_mat")))
-        (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
-        (VAO_bind_and_draw_arrays screen_vao GL_TRIANGLES 0 6))
+       (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
+       (VAO_bind_and_draw_arrays screen_vao GL_TRIANGLES 0 6))
       
       ;; render the scope as normal
       (glUseProgram scope_prog)
@@ -240,8 +238,10 @@
            (t1:float -1.0:float) (t2:float -1.0:float) (y1:float 0.0) (y2:float 0.0) (cc:i64 0)
            (sample_point_vertices:float* (salloc (* 5 (+ sz 1)))))
         (pset! flag 0 #t)
-        (pset! sample_point_vertices (+  (* cc 5) 0) (* y (cos (* STWOPI t))))
-        (pset! sample_point_vertices (+  (* cc 5) 1) (* y (sin (* STWOPI t))))
+        ;;(pset! sample_point_vertices (+  (* cc 5) 0) (* y (cos (* STWOPI t))))
+        ;;(pset! sample_point_vertices (+  (* cc 5) 1) (* y (sin (* STWOPI t))))
+        (pset! sample_point_vertices (+  (* cc 5) 0) t)
+        (pset! sample_point_vertices (+  (* cc 5) 1) y)
         (pset! sample_point_vertices (+  (* cc 5) 2) 1.0)
         (pset! sample_point_vertices (+  (* cc 5) 3) 1.0)
         (pset! sample_point_vertices (+  (* cc 5) 4) 1.0)
@@ -251,8 +251,10 @@
           (set! t2 (pop YBOT_SCOPE_X flag))
           (cond
            (#t ;;(> t2 t) ;;clean (> t2 t1) (not (or (and (= 0.0:float t1) (= 0.0:float y1)) (and (= 0.0:float t2) (= 0.0:float y2)))))
-            (pset! sample_point_vertices (+  (* cc 5) 0) (* y2 (cos (* STWOPI t2))))
-            (pset! sample_point_vertices (+  (* cc 5) 1) (* y2 (sin (* STWOPI t2))))
+            ;;(pset! sample_point_vertices (+  (* cc 5) 0) (* y2 (cos (* STWOPI t2))))
+            ;;(pset! sample_point_vertices (+  (* cc 5) 1) (* y2 (sin (* STWOPI t2))))
+            (pset! sample_point_vertices (+  (* cc 5) 0) t2)
+            (pset! sample_point_vertices (+  (* cc 5) 1) y2)
             (pset! sample_point_vertices (+  (* cc 5) 2) 1.0)
             (pset! sample_point_vertices (+  (* cc 5) 3) 1.0)
             (pset! sample_point_vertices (+  (* cc 5) 4) 1.0)
@@ -263,6 +265,7 @@
             void))
            (set! t1 t2)
            (set! y1 y2))
+        (set! dt (- t t2))
         (set! t t2)
         (set! y y2)
         (cond
@@ -279,7 +282,7 @@
             (VAO_bind_and_draw_arrays scope_vao GL_POINTS 0 (i64toi32 cc)))
           void)
          (else void)))
-      
+
       ;; bind default framebuffer
       (glBindFramebuffer GL_FRAMEBUFFER 0)
       ;; clear the framebuffer's colour and depth buffers
@@ -327,6 +330,7 @@
       void)))
 
 
+
 ;; (bind-func nvg_draw_loop
 ;;   (lambda (time:i64 delta:float)
 ;;     (draw_frame)
@@ -337,24 +341,47 @@
 
 ;; ($ (nvg_draw_loop (now) FRAMEDELTA))
 
+($ (printf "%d\n" (draw_loop.go:bool)))
+
+
 (bind-func draw_loop
-  (lambda (time:i64)
-    (draw_frame)
-    ;;(glfwPollEvents)
-    (glfwSwapBuffers window)
-    (let ((next_time (+ time (convert FRAMEDELTA))))
-      (callback next_time draw_loop next_time))))
+  (let ((go:bool #t) (initialised:bool #f))
+    (lambda (time:i64)
+      (cond
+       (go
+        (draw_frame)
+        (glfwPollEvents)
+        (glfwSwapBuffers window)
+        (let ((next_time (+ time (convert FRAMEDELTA))))
+          (callback next_time draw_loop next_time)
+          void))
+       (else void)))))
 
-($ (draw_loop (now)))
-
+(bind-func run_oscilloscope:[void,bool]*
+  (lambda (flag:bool)
+    (cond
+     (flag
+      (cond
+       ((draw_loop.go:bool)
+        (cond
+         ((draw_loop.initialised:bool)
+          void)
+         (else
+          (draw_loop.initialised:bool #t)
+          (draw_loop (now)))))
+       (else
+        (draw_loop.go:bool #t)
+        (draw_loop (now))
+        void)))
+     (else
+      (draw_loop.go:bool #f)
+      void))))
 
 ;; to stop the draw loop, eval this version of nvg_draw_loop
-(bind-func nvg_draw_loop
- (lambda (time:i64 delta:float)
-   (println "nvg_draw_loop callback stopped")
-   void))
-
-
+;; (bind-func draw_loop
+;;  (lambda (time:i64)
+;;    (println "draw_loop callback stopped")
+;;    void))
 
 
 (define *xtmlib-ybot_oscilloscope-loaded* #t)
