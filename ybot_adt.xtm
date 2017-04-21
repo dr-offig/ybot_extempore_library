@@ -448,6 +448,199 @@
 ;;;;;;;; end Nonblocking FloatFIFO ;;;;;;;;;
 
 
+;;;;;;;;;;; NonBlocking Dynamic array ;;;;;;;;;;
+;; DynamicArray type: data_ptr, size, capacity
+(bind-type DynamicArray <!a,i64,i64> (printer? . #f) (constructor? . #f))
+(bind-func DynamicArray:[DynamicArray*]*
+  (lambda ()
+    (let* ((output:DynamicArray* (alloc))
+           (capacity:i64 256) (size:i64 0)
+           (data (halloc capacity)))
+      (tset! output 0 data)
+      (tset! output 1 size)
+      (tset! output 2 capacity)
+      output)))
+
+(bind-func DynamicArray_d:[void,DynamicArray*]*
+  (lambda (v)
+    (free (tref v 0))
+    (tset! v 0 (convert 0))
+    (tset! v 1 0)
+    (tset! v 2 0)
+    void))
+
+(bind-func data:[!a,DynamicArray*]* (lambda (v) (tref v 0)))
+(bind-func data:[!a,DynamicArray*,!a]* (lambda (v p) (tset! v 0 p)))
+(bind-func size:[i64,DynamicArray*]* (lambda (v) (tref v 1)))
+(bind-func size:[i64,DynamicArray*,i64]* (lambda (v n) (tset! v 1 n)))
+(bind-func capacity:[i64,DynamicArray*]* (lambda (v) (tref v 2)))
+(bind-func capacity:[i64,DynamicArray*,i64]* (lambda (v n) (tset! v 2 n)))
+
+(bind-func push:[void,DynamicArray*,!a]*
+  (lambda (v x)
+    (cond
+     ((< (tref v 1) (tref v 2)) ;; size < capacity
+      (pset! (tref v 0) (tref v 1) x) ;; v[size] <-- x
+      (tset! v 1 (+ (tref v 1) 1))
+      void)
+     (else
+      (let* ((q (halloc (* (tref v 2) 2))) (i:i64 0))
+        (dotimes (i (tref v 1))
+          (pset! q i (pref (tref v 0) i)))
+        (free (tref v 0))
+        (tset! v 0 q)
+        (tset! v 2 (* 2 (tref v 2)))
+        (tset! v 1 (+ (tref v 1) 1))
+        void)))))
+
+
+(bind-func pop:[!a,DynamicArray*]*
+  (lambda (v)
+    (cond
+     ((< 0 (tref v 1))
+      (tset! v 1 (- (tref v 1) 1))
+      (pref (tref v 0) (tref v 1)))
+     (else (convert 0)))))
+      
+
+(bind-func at:[!a,DynamicArray*,i64]*
+  (lambda (v i)
+    (cond
+     ((< i (tref v 1))
+      (pref (tref v 0) i))
+     (else
+      (convert 0)))))
+
+
+(bind-func at:[void,DynamicArray*,i64,!a]*
+  (lambda (v i x)
+    (cond
+     ((< i (tref v 1))
+      (pset! (tref v 0) i x) void)
+     (else
+      (let ((d:i64 (- i (tref v 1))) (j:i64 0))
+        (dotimes (j d)
+          (push v (convert 0)))
+        (push v x)
+        void)))))
+          
+
+(bind-func last:[!a,DynamicArray*]*
+  (lambda (v)
+    (cond
+     ((< 0 (tref v 1))
+      (pref (tref v 0) (- (tref v 1) 1)))
+     (else (convert 0)))))
+
+
+(bind-func clear:[void,DynamicArray*]*
+  (lambda (v)
+    (tset! v 1 0)
+    void))
+
+
+;; (bind-func print:[void,DynamicArray*]*
+;;   (lambda (v:DynamicArray*)
+;;     (let ((i:i64 0) (n:i64 (tref v 1)))
+;;       (printout "[  ")
+;;       (dotimes (i n)
+;;          (printout (at v i))
+;;          (printout "  "))
+;;       (println "]"))))
+
+
+(bind-func print:[void,DynamicArray{float*}*]*
+  (lambda (v:DynamicArray{float*}*)
+    (let ((i:i64 0) (n:i64 (tref v 1)))
+      (printout "[  ")
+      (dotimes (i n)
+         (printout (at v i))
+         (printout "  "))
+      (println "]"))))
+
+
+(bind-func max_at:[i64,DynamicArray*]*
+  (lambda (v)
+    (let ((n:i64 (tref v 1)) (output:i64 0))
+      (cond
+       ((< 0 n)
+        (let ((m (at v 0)) (i:i64 0))
+          (dotimes (i n)
+            (cond
+             ((< m (at v i))
+              (set! m (at v i))
+              (set! output i)
+              void)
+             (else void))))
+        void)
+       (else
+        void))
+      output)))
+
+
+(bind-func max:[!a,DynamicArray*]*
+  (lambda (v)
+    (at v (max_at v))))
+          
+
+(bind-func min_at:[i64,DynamicArray*]*
+  (lambda (v)
+    (let ((n:i64 (tref v 1)) (output:i64 0))
+      (cond
+       ((< 0 n)
+        (let ((m (at v 0)) (i:i64 0))
+          (dotimes (i n)
+            (cond
+             ((> m (at v i))
+              (set! m (at v i))
+              (set! output i)
+              void)
+             (else void))))
+        void)
+       (else
+        void))
+      output)))
+
+
+(bind-func min:[!a,DynamicArray*]*
+  (lambda (v)
+    (at v (min_at v))))
+
+
+(bind-func integrate:[!a,DynamicArray*,!a]*
+  (lambda (v a)
+    (let ((n:i64 (tref v 1)) (i:i64 0))
+      (dotimes (i n)
+        (set! a (+ a (at v i))))
+      a)))
+          
+ 
+(bind-func mean:[!a,DynamicArray*]*
+  (lambda (v)
+    (let ((n:i64 (tref v 1)))
+      (cond
+       ((< 0 n)
+        (/ (integrate v (convert 0)) (convert n)))
+       (else (convert 0))))))
+    
+
+(bind-func sum:[!a,DynamicArray*]*
+  (lambda (v)
+    (integrate v (convert 0))))
+
+
+(bind-func append:[void,DynamicArray*,!a,i64]*
+  (lambda (v p sz)
+    (let ((i:i64 0))
+      (dotimes (i sz)
+        (push v (pref p i)))
+      void)))
+
+
+
+;;;;;;;; end nonblocking dynamic array ;;;;;;;;
+
+
 
 (bind-func caar:[!a,List{!a}*]* (lambda (x) (car (car x))))
 (bind-func cadr:[!a,List{!a}*]* (lambda (x) (car (cdr x))))

@@ -1,0 +1,335 @@
+(sys:load-preload-check 'ybot_plot)
+(define *xtmlib-ybot_plot-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
+
+
+(bind-func VBO_create
+  (lambda (buf:float* buflen)
+    (let ((vbo:VBO* (halloc))
+          (id:GLuint* (salloc)))
+      (glGenBuffers 1 id)
+      (gl_print_error "Error creating VBO")
+      (tfill! vbo
+              (pref id 0)
+              GL_FLOAT
+              (* buflen 4) ;; sizeof(float)
+              (cast buf GLvoid*))
+      (glBindBuffer GL_ARRAY_BUFFER (VBO_id vbo))
+      (glBufferData GL_ARRAY_BUFFER (VBO_size vbo) (VBO_data vbo) GL_STREAM_DRAW)
+      (gl_print_error "Error setting VBO data")
+      vbo)))
+
+
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_fullscreen_interaction_window)))
+
+(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
+
+(bind-val width float (glfw_get_window_width window))
+(bind-val height float (glfw_get_window_height window))
+
+(bind-val cx float (/ width 2.0:float))
+(bind-val cy float (/ height 2.0:float))
+
+(bind-val FRAMERATE float 60.)
+(bind-val FRAMEDURATION float (/ 1. FRAMERATE))
+(bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
+
+;($ (set! FRAMERATE 60.:float))
+;($ (set! FRAMEDELTA (* SAMPLERATE (/ 1.:float FRAMERATE))))
+
+
+(bind-val YBOT_PLOT_Y DynamicArray{float*}* (DynamicArray))
+(bind-val YBOT_PLOT_X DynamicArray{float*}* (DynamicArray))
+(bind-val YBOT_PLOT_T DynamicArray{float*}* (DynamicArray))
+(bind-val YBOT_PLOT_S DynamicArray{float*}* (DynamicArray))
+(bind-val YBOT_PLOT_MUTEX i8* (mutex_create))
+
+(bind-func auto_range_X:[void]*
+  (lambda ()
+    (let* ((a:float (min YBOT_PLOT_X))
+           (b:float (max YBOT_PLOT_X))
+           (mu:float (mean YBOT_PLOT_X))
+           (c:float (- b a)) (i:i64 0)
+           (n:i64 (size YBOT_PLOT_X))) 
+      (clear YBOT_PLOT_T)
+      (cond
+       ((< 0.0:float c)
+        (dotimes (i n)
+          (let ((x:float (at YBOT_PLOT_X i)))
+            (push YBOT_PLOT_T (* 1.8:float (/ (- y mu) c)))))
+        void)
+       (else
+         (dotimes (i n)
+           (push YBOT_PLOT_T (at YBOT_PLOT_X i))))))
+    void))
+
+
+(bind-func test:[float,DynamicArray{float*}*]*
+  (lambda (v)
+    (sum v)))
+
+
+(bind-func auto_range_Y:[void]*
+  (lambda ()
+    (let* ((a:float (min YBOT_PLOT_Y))
+           (b:float (max YBOT_PLOT_Y))
+           (mu:float (mean YBOT_PLOT_Y))
+           (c:float (- b a)) (i:i64 0)
+           (n:i64 (size YBOT_PLOT_Y))) 
+      (clear YBOT_PLOT_S)
+      (cond
+       ((< 0.0:float c)
+        (dotimes (i n)
+          (let ((y:float (at YBOT_PLOT_Y i)))
+            (push YBOT_PLOT_S (* 1.8:float (/ (- y mu) c)))))
+        void)
+       (else
+         (dotimes (i n)
+           (push YBOT_PLOT_S (at YBOT_PLOT_Y i))))))
+    void))
+
+
+
+;; (bind-val fbo FBO*)
+;; (bind-val ss_quad_vao VAO*)
+
+;; (call-as-xtlang
+;;  (let ((fbw_ptr:i32* (salloc))
+;;        (fbh_ptr:i32* (salloc)))
+;;    (glfwGetFramebufferSize window fbw_ptr fbh_ptr)
+;;    (println (set! fbo (FBO_create_with_textures (pref fbw_ptr 0) (pref fbh_ptr 0) #t)))
+;;    (set! ss_quad_vao (VAO_create_ss_quad))))
+
+
+;;(bind-val scope_vertex_data |1280,float|)
+(bind-val view_mat |16,float|) ;; view matrix
+
+(bind-val scope_vbo VBO*)
+(bind-val scope_vao VAO*)
+(bind-val scope_prog ShaderProgram)
+
+(bind-func reset_view_matrix
+  (lambda ()
+    (afill! view_mat
+         1.0 0.0 0.0 0.0
+         0.0 1.0 0.0 0.0
+         0.0 0.0 1.0 0.0
+         0.0 0.0 0.0 1.0)))
+
+
+(call-as-xtlang
+ (reset_view_matrix)
+ (set! scope_prog
+       (ShaderProgram_create
+        (sys_slurp_file "libs/contrib/ybot/default_shader.vert")
+        (sys_slurp_file "libs/contrib/ybot/default_shader.frag"))))
+
+
+;;;;; Testing only ;;;;;
+(bind-func generate-noise:[void,i64]*
+  (lambda (sz:i64)
+    (clear YBOT_PLOT_X)
+    (clear YBOT_PLOT_Y)
+    (clear YBOT_PLOT_T)
+    (clear YBOT_PLOT_S)
+    (let ((i:i64 0))
+      (dotimes (i sz)
+        (push YBOT_PLOT_Y (dtof (random)))
+        (push YBOT_PLOT_X (i64tof i))))
+    (auto_range_X)
+    (auto_range_Y)
+    void))
+
+
+(bind-func generate-sinewave:[void,i64,double]*
+  (lambda (sz:i64 freq:double)
+    (clear YBOT_PLOT_X)
+    (clear YBOT_PLOT_Y)
+    (clear YBOT_PLOT_T)
+    (clear YBOT_PLOT_S)
+    (let ((i:i64 0))
+      (dotimes (i sz)
+        (push YBOT_PLOT_Y (dtof (sin (* TWOPI freq (/ (i64tod i) 44100.0 )))))
+        (push YBOT_PLOT_X (i64tof i))))
+    (auto_range_X)
+    (auto_range_Y)
+    void))
+
+(generate-sinewave 441000 100.0)
+
+(generate-noise 1000)
+(refresh_screen)
+
+($ (print YBOT_PLOT_Y))
+($ (print (glGet GL_LINE_WIDTH)))
+
+(bind-func draw_frame
+  (lambda ()
+    (glEnable GL_LINE_SMOOTH)
+    ;(glLineWidth 1.0:float)
+    (glClearColor 0.0 0.0 0.0 1.0)
+    (glClear GL_COLOR_BUFFER_BIT)
+    (glPointSize 20.0:float)
+    ;; render the scope as normal
+    (glUseProgram scope_prog)
+                                        ;(mutex_lock YBOT_PLOT_MUTEX)
+    (let*
+        ((sz:i64 (size YBOT_PLOT_S)) (i:i64 0) (t1:float -1.0:float) (t2:float -1.0:float) (y1:float 0.0) (y2:float 0.0) 
+         (sample_point_vertices:float* (salloc (* 5 sz))))
+      (dotimes (i sz)
+        (set! y2 (at YBOT_PLOT_S i))
+        (set! t2 (at YBOT_PLOT_T i))
+        (pset! sample_point_vertices (+  (* i 5) 0) t2)
+        (pset! sample_point_vertices (+  (* i 5) 1) y2)
+        (pset! sample_point_vertices (+  (* i 5) 2) 1.0)
+        (pset! sample_point_vertices (+  (* i 5) 3) 1.0)
+        (pset! sample_point_vertices (+  (* i 5) 4) 1.0))
+      (set! scope_vbo (VBO_create sample_point_vertices (* 5 sz)))
+      (set! scope_vao (VAO_create))
+      (VAO_bind_attribute scope_vao scope_vbo 0 2 5 0) ;; position
+      (VAO_bind_attribute scope_vao scope_vbo 1 3 5 2) ;; colour
+      
+      (let ((loc (glGetUniformLocation scope_prog "view_mat")))
+        (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0)))
+        
+      (VAO_bind_and_draw_arrays scope_vao GL_LINE_STRIP 0 (i64toi32 sz)))
+      ;(mutex_unlock YBOT_PLOT_MUTEX)
+    void))
+
+(refresh_screen)
+
+;; (bind-func draw_frame:[void]*
+;;   (let ((drawbufs_ptr:GLenum* (zalloc)) (t:float 0.0) (y:float 0.0) (dt:float 0.0))
+;;     ;;(glDisable GL_LINE_SMOOTH)
+;;     (glDisable GL_BLEND)
+;;     ;(glEnable GL_BLEND)
+;;     ;(glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
+;;     (glPointSize 1.0:float)
+;;     (pset! drawbufs_ptr 0 GL_COLOR_ATTACHMENT0)
+;;     (lambda ()
+;;       ;; bind the second (render-to-texture) framebuffer
+;;       (glBindFramebuffer GL_FRAMEBUFFER (FBO_id fbo))
+;;       (glDrawBuffers 1 drawbufs_ptr)
+;;       ;; clear the framebuffer's colour and depth buffers
+;;       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+
+;;       ;; (glUseProgram screen_prog)
+;;       ;; (let ((loc (glGetUniformLocation screen_prog "view_mat")))
+;;       ;;  (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
+;;       ;;  (VAO_bind_and_draw_arrays screen_vao GL_TRIANGLES 0 6))
+      
+;;       ;; render the scope as normal
+;;       (glUseProgram scope_prog)
+
+;;       (mutex_lock YBOT_PLOT_MUTEX)
+;;       (let*
+;;           ((sz:i64 (size YBOT_PLOT_S)) (i:i64 0) (t1:float -1.0:float) (t2:float -1.0:float) (y1:float 0.0) (y2:float 0.0) 
+;;            (sample_point_vertices:float* (salloc (* 5 sz))))
+;;         (dotimes (i sz)
+;;           (set! y2 (at YBOT_PLOT_S i))
+;;           (set! t2 (at YBOT_PLOT_T i))
+;;           (pset! sample_point_vertices (+  (* i 5) 0) t2)
+;;           (pset! sample_point_vertices (+  (* i 5) 1) y2)
+;;           (pset! sample_point_vertices (+  (* i 5) 2) 1.0)
+;;           (pset! sample_point_vertices (+  (* i 5) 3) 1.0)
+;;           (pset! sample_point_vertices (+  (* i 5) 4) 1.0))
+;;         (set! scope_vbo (VBO_create sample_point_vertices (* 5 sz)))
+;;         (set! scope_vao (VAO_create))
+;;         (VAO_bind_attribute scope_vao scope_vbo 0 2 5 0) ;; position
+;;         (VAO_bind_attribute scope_vao scope_vbo 1 3 5 2) ;; tex_coord
+;;         ;(glClearColor 0.0 0.0 0.0 1.0)
+;;         ;(glClear GL_COLOR_BUFFER_BIT)
+;;         (glUseProgram scope_prog)
+;;         (let ((loc (glGetUniformLocation scope_prog "view_mat")))
+;;           (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
+;;           (VAO_bind_and_draw_arrays scope_vao GL_POINTS 0 (i64toi32 sz)))
+
+;;         ;; bind default framebuffer
+;;         (glBindFramebuffer GL_FRAMEBUFFER 0)
+;;         ;; clear the framebuffer's colour and depth buffers
+;;         (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;         ;; our post-processing shader for the screen-space quad
+;;         (glUseProgram post_process_sp)
+;;         ;; bind the quad's VAO
+;;         (glBindVertexArray (VAO_id ss_quad_vao))
+;;         ;; activate the first texture slot and put texture from previous pass in it
+;;         (glActiveTexture GL_TEXTURE0)
+;;         (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo))
+;;         ;; draw the quad
+;;         (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+
+;;         (mutex_unlock YBOT_PLOT_MUTEX)
+;;         void))))
+
+(bind-func refresh_screen:[void]*
+  (lambda ()
+    (draw_frame)
+    (glfwSwapBuffers window)))
+
+(refresh_screen)
+
+;; (bind-func nvg_draw_loop
+;;   (lambda (time:i64 delta:float)
+;;     (draw_frame)
+;;     ;;(glfwPollEvents)
+;;     (glfwSwapBuffers window)
+;;     (let ((next_time (+ time (convert delta))))
+;;       (callback next_time nvg_draw_loop next_time delta))))
+
+;; ($ (nvg_draw_loop (now) FRAMEDELTA))
+
+($ (printf "%d\n" (draw_loop.go:bool)))
+
+
+(bind-func draw_loop
+  (let ((go:bool #t) (initialised:bool #f))
+    (lambda (time:i64)
+      (cond
+       (go
+        (draw_frame)
+        (glfwPollEvents)
+        (glfwSwapBuffers window)
+        (let ((next_time (+ time (convert FRAMEDELTA))))
+          (callback next_time draw_loop next_time)
+          void))
+       (else void)))))
+
+(bind-func run_oscilloscope:[void,bool]*
+  (lambda (flag:bool)
+    (cond
+     (flag
+      (cond
+       ((draw_loop.go:bool)
+        (cond
+         ((draw_loop.initialised:bool)
+          void)
+         (else
+          (draw_loop.initialised:bool #t)
+          (draw_loop (now)))))
+       (else
+        (draw_loop.go:bool #t)
+        (draw_loop (now))
+        void)))
+     (else
+      (draw_loop.go:bool #f)
+      void))))
+
+;; to stop the draw loop, eval this version of nvg_draw_loop
+;; (bind-func draw_loop
+;;  (lambda (time:i64)
+;;    (println "draw_loop callback stopped")
+;;    void))
+
+
+(define *xtmlib-ybot_plot-loaded* #t)
