@@ -1,0 +1,513 @@
+(sys:load-preload-check 'ybot_draw3D)
+(define *xtmlib-ybot_draw3D-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/contrib/ybot/ybot_maths.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/contrib/ybot/ybot_maths.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
+
+;; Override default extempore function from glfw3.xtm to suppress printing
+(bind-func VBO_create
+  (lambda (buf:float* buflen)
+    (let ((vbo:VBO* (halloc))
+          (id:GLuint* (salloc)))
+      (glGenBuffers 1 id)
+      (gl_print_error "Error creating VBO")
+      (tfill! vbo
+              (pref id 0)
+              GL_FLOAT
+              (* buflen 4) ;; sizeof(float)
+              (cast buf GLvoid*))
+      (glBindBuffer GL_ARRAY_BUFFER (VBO_id vbo))
+      (glBufferData GL_ARRAY_BUFFER (VBO_size vbo) (VBO_data vbo) GL_STREAM_DRAW)
+      (gl_print_error "Error setting VBO data")
+      vbo)))
+
+;; Interpolation functions
+;; (bind-func lerp:[float,float,float,float]*
+;;   (lambda (t a b)
+;;     (+ (* t b) (* (- 1.0:float t) a))))
+
+
+(bind-func lerp:[float,float,float,float,float,float]*
+  (lambda (x a0 b0 a1 b1)
+    (let ((d (- a1 a0)))
+      (cond
+       ((= d 0.0:float)
+        (/ (+ b0 b1) 2.0:float))
+       (else
+        (lerp:[float,float,float,float]* (/ (- x a0) d) b0 b1))))))
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; OpenGL related Matrix Operations
+;;
+
+(bind-func mat4_to_mat3
+  (lambda (mat4:float* mat3:float*)
+    (pfill! mat3
+            (pref mat4 0) (pref mat4 1) (pref mat4 2)
+            (pref mat4 4) (pref mat4 5) (pref mat4 6)
+            (pref mat4 8) (pref mat4 9) (pref mat4 10))
+    void))
+
+(bind-func plane_intersection
+  (lambda (ray_origin:float* ray_dir:float* plane_centre:float* plane_normal:float*)
+    (let ((denom (vvdot plane_normal ray_dir 3))
+          (t -1.0))
+      (if (> (fabs denom) 0.0001:f) ;; epsilon
+          (begin
+            (vvsub plane_centre ray_origin 3 plane_centre)
+            (set! t (/ (vvdot plane_centre plane_normal 3)
+                       denom))))
+      (if (>= t 0.0)
+          #t
+          #f))))
+                
+(bind-func translate_matrix
+  (lambda (mat:float* x y z)
+    (let ((mat2:float* (salloc 32))
+          (mat3 (pref-ptr mat2 16)))
+      (pfill! mat2
+              1.0 0.0 0.0 0.0
+              0.0 1.0 0.0 0.0
+              0.0 0.0 1.0 0.0
+              x   y   z   1.0)
+      (mmmul mat mat2 mat3)
+      (memcpy (cast mat i8*) (cast mat3 i8*) (* 16 4))
+      void)))
+
+(bind-func scale_matrix
+  (lambda (mat:float* x:float y:float z:float)
+    (let ((mat2:float* (salloc 32))
+          (mat3:float* (pref-ptr mat2 16)))
+      (pfill! mat2
+              x     0.0   0.0   0.0
+              0.0   y     0.0   0.0
+              0.0   0.0   z     0.0
+              0.0   0.0   0.0   1.0)
+      (mmmul mat mat2 mat3)
+      (memcpy (cast mat i8*) (cast mat3 i8*) (* 16 4))
+      void)))
+
+(bind-func invert_matrix
+  (lambda (mat:float*)
+    (let ((mat2:float* (salloc 16)))
+      (minverse mat 4 mat2)
+      (memcpy (cast mat i8*) (cast mat2 i8*) (* 16 4))
+      void)))
+
+(bind-func rotate_matrix
+  (lambda (mat:float* alpha:float x:float y:float z:float)
+    (let ((c (cos alpha))
+          (c-1 (- 1.0 c))
+          (s (sin alpha))
+          (mat2:float* (salloc 16))
+          (mat3:float* (salloc 16))          
+          (vec1:float* (salloc 3)) ;; axis to rotate around (normalized)
+          (vec2:float* (salloc 3))) ;; axis to rotate around (normalized)
+      (pfill! vec1 x y z)
+      (vnormalise vec1 3 vec2)
+      (set! x (pref vec2 0))
+      (set! y (pref vec2 1))
+      (set! z (pref vec2 2))
+      (pfill! mat2
+              (+ (* x x c-1) c) (- (* x y c-1) (* z s)) (+ (* x z c-1) (* y s)) 0.0
+              (+ (* y x c-1) (* z s)) (+ (* y y c-1) c) (- (* y z c-1) (* x s)) 0.0
+              (- (* x z c-1) (* y s)) (+ (* y z c-1) (* x s)) (+ (* z z c-1) c) 0.0
+              0.0               0.0                     0.0                     1.0)
+      (mmmul mat mat2 mat3)
+      (memcpy (cast mat i8*) (cast mat3 i8*) (* 16 4))
+      void)))
+
+(bind-func icosohedron_vertices:[float*]*
+  (lambda ()
+    (let ((vertices:float* (alloc (* 3 12))))
+      (pfill! vertices
+              0.000:float,  0.000:float,  1.000:float,
+              0.894:float,  0.000:float,  0.447:float,
+              0.276:float,  0.851:float,  0.447:float,
+              -0.724:float, 0.526:float,  0.447:float,
+              -0.724:float, -0.526:float, 0.447:float,
+              0.276:float, -0.851:float,  0.447:float,
+              0.724:float,  0.526:float, -0.447:float,
+              -0.276:float,  0.851:float, -0.447:float,
+              -0.894:float,  0.000:float, -0.447:float,
+              -0.276:float, -0.851:float, -0.447:float,
+              0.724:float, -0.526:float, -0.447:float,
+              0.000:float,  0.000:float, -1.000:float)
+      vertices)))
+
+(bind-func icosohedron_triangles:
+  
+
+
+;; static void CreateIcosahedron()
+;; {
+;;     const int Faces[] = {
+;;         2, 1, 0,
+;;         3, 2, 0,
+;;         4, 3, 0,
+;;         5, 4, 0,
+;;         1, 5, 0,
+;;         11, 6,  7,
+;;         11, 7,  8,
+;;         11, 8,  9,
+;;         11, 9,  10,
+;;         11, 10, 6,
+;;         1, 2, 6,
+;;         2, 3, 7,
+;;         3, 4, 8,
+;;         4, 5, 9,
+;;         5, 1, 10,
+;;         2,  7, 6,
+;;         3,  8, 7,
+;;         4,  9, 8,
+;;         5, 10, 9,
+;;         1, 6, 10 };
+
+;;     const float Verts[] = {
+;;          0.000f,  0.000f,  1.000f,
+;;          0.894f,  0.000f,  0.447f,
+;;          0.276f,  0.851f,  0.447f,
+;;         -0.724f,  0.526f,  0.447f,
+;;         -0.724f, -0.526f,  0.447f,
+;;          0.276f, -0.851f,  0.447f,
+;;          0.724f,  0.526f, -0.447f,
+;;         -0.276f,  0.851f, -0.447f,
+;;         -0.894f,  0.000f, -0.447f,
+;;         -0.276f, -0.851f, -0.447f,
+;;          0.724f, -0.526f, -0.447f,
+;;          0.000f,  0.000f, -1.000f };
+
+;;     IndexCount = sizeof(Faces) / sizeof(Faces[0]);
+
+;;     // Create the VAO:
+;;     GLuint vao;
+;;     glGenVertexArrays(1, &vao);
+;;     glBindVertexArray(vao);
+
+;;     // Create the VBO for positions:
+;;     GLuint positions;
+;;     GLsizei stride = 3 * sizeof(float);
+;;     glGenBuffers(1, &positions);
+;;     glBindBuffer(GL_ARRAY_BUFFER, positions);
+;;     glBufferData(GL_ARRAY_BUFFER, sizeof(Verts), Verts, GL_STATIC_DRAW);
+;;     glEnableVertexAttribArray(PositionSlot);
+;;     glVertexAttribPointer(PositionSlot, 3, GL_FLOAT, GL_FALSE, stride, 0);
+
+;;     // Create the VBO for indices:
+;;     GLuint indices;
+;;     glGenBuffers(1, &indices);
+;;     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices);
+;;     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Faces), Faces, GL_STATIC_DRAW);
+;; }
+
+      
+      
+      
+      
+      
+
+
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_fullscreen_interaction_window)))
+(bind-val YBOT_3D_WINDOW GLFWwindow* (convert null))
+(bind-val YBOT_3D_PIXEL_RATIO float 1.0:float)
+(bind-val YBOT_3D_WIDTH i32 0:i32)
+(bind-val YBOT_3D_HEIGHT i32 0:i32)
+(bind-val YBOT_3D_CX float 0.0:float)
+(bind-val YBOT_3D_CY float 0.0:float)
+(bind-val YBOT_3D_FRAMERATE float 60.)
+(bind-val YBOT_3D_FRAMEDURATION float (/ 1. YBOT_3D_FRAMERATE))
+(bind-val YBOT_3D_FRAMEDELTA float (* SAMPLERATE (/ 1. YBOT_3D_FRAMERATE)))
+
+(bind-type YbotSolid <VAO*,VBO*> (constructor? . #f) (printer? . #f))
+(bind-val YBOT_3D_SOLIDS DynamicArray{YbotSolid*}*)
+(bind-val YBOT_3D_LATTICE_VERTICES float*)
+(bind-val YBOT_3D_LATTICE_COUNT i64 0)
+;;(bind-val YBOT_PLOT_X DynamicArray{float*}*)
+;;(bind-val YBOT_PLOT_T DynamicArray{float*}*)
+;;(bind-val YBOT_PLOT_S DynamicArray{float*}*)
+(bind-val YBOT_3D_MUTEX i8*)
+
+
+(bind-func y3d_initialise:[bool,i64,i64]*
+  (lambda (w:i64 h:i64)
+    (cond
+     ((null? YBOT_3D_WINDOW)
+      (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+      (set! YBOT_3D_WINDOW
+            (if (or (= w 0) (= h 0))
+                (glfw_init_and_create_fullscreen_interaction_window)
+                (glfw_init_and_create_interaction_window (i64toi32 w) (i64toi32 h))))
+      (set! YBOT_3D_PIXEL_RATIO (glfw_get_pixel_ratio YBOT_3D_WINDOW))
+      (set! YBOT_3D_WIDTH (glfw_get_window_width YBOT_3D_WINDOW))
+      (set! YBOT_3D_HEIGHT (glfw_get_window_height YBOT_3D_WINDOW))
+      (set! YBOT_3D_CX (/ (i32tof YBOT_3D_WIDTH) 2.0:float))
+      (set! YBOT_3D_CY (/ (i32tof YBOT_3D_HEIGHT) 2.0:float))
+      (set! YBOT_3D_SOLIDS (DynamicArray))
+      (set! YBOT_3D_MUTEX (mutex_create))
+      #t)
+     (else
+      (println "Y3d_plot window is already initialised")
+      #f))))
+
+(y3d_initialise 0 0)
+
+
+(bind-func y3d_destroy
+  (lambda ()
+    (mutex_lock YBOT_3D_MUTEX)
+    (glfw_destroy_window YBOT_3D_WINDOW)
+    (set! YBOT_3D_WINDOW 0:i8*)
+    (DynamicArray_d YBOT_3D_SOLIDS) 
+    (mutex_unlock YBOT_3D_MUTEX)
+    (mutex_destroy YBOT_3D_MUTEX)
+    void))
+
+
+(bind-val YBOT_3D_VIEW_MAT |16,float|) ;; view matrix
+
+(bind-val YBOT_3D_LATTICE_VBO VBO*)
+(bind-val YBOT_3D_LATTICE_VAO VAO*)
+(bind-val YBOT_3D_LATTICE_PROG ShaderProgram)
+
+(bind-func y3d_reset_view_matrix
+  (lambda ()
+    (afill! YBOT_3D_VIEW_MAT
+         1.0 0.0 0.0 0.0
+         0.0 1.0 0.0 0.0
+         0.0 0.0 1.0 0.0
+         0.0 0.0 0.0 1.0)))
+
+
+(bind-func initialise_lattice_shaders
+  (lambda ()
+    (y3d_reset_view_matrix)
+    (set! YBOT_3D_LATTICE_PROG
+           (ShaderProgram_create
+           (sys_slurp_file "libs/contrib/ybot/default_shader3D.vert")
+           (sys_slurp_file "libs/contrib/ybot/default_shader3D.frag")))
+    void))
+
+
+(initialise_lattice_shaders)
+
+(bind-func generate-lattice:[void,i64,float]*
+  (lambda (sz:i64 spacing:float)
+    (let* ((count:i64 (* sz sz sz))
+           (ptr:float* (halloc (* 6 count)))
+           (i:i64 0) (j:i64 0) (k:i64 0) (cc:i64 0))
+      (set! YBOT_3D_LATTICE_VERTICES ptr)
+      (set! YBOT_3D_LATTICE_COUNT count)
+      (dotimes (i sz)
+        (dotimes (j sz)
+          (dotimes (k sz)
+            (pset! YBOT_3D_LATTICE_VERTICES (+ cc 0) (* (i64tof (- i (/ sz 2))) spacing))
+            (pset! YBOT_3D_LATTICE_VERTICES (+ cc 1) (* (i64tof (- j (/ sz 2))) spacing))
+            (pset! YBOT_3D_LATTICE_VERTICES (+ cc 2) (* (i64tof (- k (/ sz 2))) spacing))
+            (pset! YBOT_3D_LATTICE_VERTICES (+ cc 3) 1.0:float)
+            (pset! YBOT_3D_LATTICE_VERTICES (+ cc 4) 1.0:float)
+            (pset! YBOT_3D_LATTICE_VERTICES (+ cc 5) 1.0:float)
+            (set! cc (+ cc 6)))))
+      (set! YBOT_3D_LATTICE_VBO (VBO_create YBOT_3D_LATTICE_VERTICES (* 6 YBOT_3D_LATTICE_COUNT)))
+      (set! YBOT_3D_LATTICE_VAO (VAO_create))
+      (VAO_bind_attribute YBOT_3D_LATTICE_VAO YBOT_3D_LATTICE_VBO 0 3 6 0) ;; position
+      (VAO_bind_attribute YBOT_3D_LATTICE_VAO YBOT_3D_LATTICE_VBO 1 3 6 3) ;; colour
+      void)))
+
+
+(bind-func y3d_draw_frame
+  (lambda ()
+    (glEnable GL_LINE_SMOOTH)
+    ;(glLineWidth 1.0:float)
+    (glClearColor 0.0 0.0 0.0 1.0)
+    (glClear GL_COLOR_BUFFER_BIT)
+    (glPointSize 20.0:float)
+    ;; render the scope as normal
+    (glUseProgram YBOT_3D_LATTICE_PROG)
+    (mutex_lock YBOT_3D_MUTEX)
+    (let ((loc (glGetUniformLocation YBOT_3D_LATTICE_PROG "view_mat")))
+      (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr YBOT_3D_VIEW_MAT 0)))
+    (VAO_bind_and_draw_arrays YBOT_3D_LATTICE_VAO GL_POINTS 0 (i64toi32 YBOT_3D_LATTICE_COUNT))
+    (mutex_unlock YBOT_3D_MUTEX)
+    void))
+
+;(refresh_screen)
+
+;; (bind-func draw_frame:[void]*
+;;   (let ((drawbufs_ptr:GLenum* (zalloc)) (t:float 0.0) (y:float 0.0) (dt:float 0.0))
+;;     ;;(glDisable GL_LINE_SMOOTH)
+;;     (glDisable GL_BLEND)
+;;     ;(glEnable GL_BLEND)
+;;     ;(glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
+;;     (glPointSize 1.0:float)
+;;     (pset! drawbufs_ptr 0 GL_COLOR_ATTACHMENT0)
+;;     (lambda ()
+;;       ;; bind the second (render-to-texture) framebuffer
+;;       (glBindFramebuffer GL_FRAMEBUFFER (FBO_id fbo))
+;;       (glDrawBuffers 1 drawbufs_ptr)
+;;       ;; clear the framebuffer's colour and depth buffers
+;;       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+
+;;       ;; (glUseProgram screen_prog)
+;;       ;; (let ((loc (glGetUniformLocation screen_prog "view_mat")))
+;;       ;;  (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
+;;       ;;  (VAO_bind_and_draw_arrays screen_vao GL_TRIANGLES 0 6))
+      
+;;       ;; render the scope as normal
+;;       (glUseProgram scope_prog)
+
+;;       (mutex_lock YBOT_PLOT_MUTEX)
+;;       (let*
+;;           ((sz:i64 (size YBOT_PLOT_S)) (i:i64 0) (t1:float -1.0:float) (t2:float -1.0:float) (y1:float 0.0) (y2:float 0.0) 
+;;            (sample_point_vertices:float* (salloc (* 5 sz))))
+;;         (dotimes (i sz)
+;;           (set! y2 (at YBOT_PLOT_S i))
+;;           (set! t2 (at YBOT_PLOT_T i))
+;;           (pset! sample_point_vertices (+  (* i 5) 0) t2)
+;;           (pset! sample_point_vertices (+  (* i 5) 1) y2)
+;;           (pset! sample_point_vertices (+  (* i 5) 2) 1.0)
+;;           (pset! sample_point_vertices (+  (* i 5) 3) 1.0)
+;;           (pset! sample_point_vertices (+  (* i 5) 4) 1.0))
+;;         (set! scope_vbo (VBO_create sample_point_vertices (* 5 sz)))
+;;         (set! scope_vao (VAO_create))
+;;         (VAO_bind_attribute scope_vao scope_vbo 0 2 5 0) ;; position
+;;         (VAO_bind_attribute scope_vao scope_vbo 1 3 5 2) ;; tex_coord
+;;         ;(glClearColor 0.0 0.0 0.0 1.0)
+;;         ;(glClear GL_COLOR_BUFFER_BIT)
+;;         (glUseProgram scope_prog)
+;;         (let ((loc (glGetUniformLocation scope_prog "view_mat")))
+;;           (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
+;;           (VAO_bind_and_draw_arrays scope_vao GL_POINTS 0 (i64toi32 sz)))
+
+;;         ;; bind default framebuffer
+;;         (glBindFramebuffer GL_FRAMEBUFFER 0)
+;;         ;; clear the framebuffer's colour and depth buffers
+;;         (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;         ;; our post-processing shader for the screen-space quad
+;;         (glUseProgram post_process_sp)
+;;         ;; bind the quad's VAO
+;;         (glBindVertexArray (VAO_id ss_quad_vao))
+;;         ;; activate the first texture slot and put texture from previous pass in it
+;;         (glActiveTexture GL_TEXTURE0)
+;;         (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo))
+;;         ;; draw the quad
+;;         (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+
+;;         (mutex_unlock YBOT_PLOT_MUTEX)
+;;         void))))
+
+
+
+(bind-func refresh_screen:[void]*
+  (lambda ()
+    (y3d_draw_frame)
+    (glfwSwapBuffers YBOT_3D_WINDOW)))
+
+(generate-lattice 10 0.05)
+(refresh_screen)
+
+;; (bind-func nvg_draw_loop
+;;   (lambda (time:i64 delta:float)
+;;     (draw_frame)
+;;     ;;(glfwPollEvents)
+;;     (glfwSwapBuffers window)
+;;     (let ((next_time (+ time (convert delta))))
+;;       (callback next_time nvg_draw_loop next_time delta))))
+
+;; ($ (nvg_draw_loop (now) FRAMEDELTA))
+
+($ (printf "%d\n" (draw_loop.go:bool)))
+
+
+;; now, let's update our key callback to translate and scale the triangle
+;; using the arrow keys (hold shift to scale)
+(bind-func move_viewpoint
+  (let ((speed 0.05))
+    (lambda (window)
+      (if (or (= GLFW_PRESS (glfwGetKey window GLFW_KEY_LEFT_SHIFT))
+              (= GLFW_PRESS (glfwGetKey window GLFW_KEY_RIGHT_SHIFT)))
+          ;; scale
+          (begin
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_LEFT))
+                (rotate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.1:float  1.0:float 0.0:float 0.0:float))
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_RIGHT))
+                (rotate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.1:float  -1.0:float 0.0:float 0.0:float))
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_DOWN))
+                (translate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.0:float  0.0:float -0.1:float))
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_UP))
+                (translate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.0:float  0.0:float 0.1:float)))
+          ;; translate
+          (begin
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_LEFT))
+                (rotate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.1:float  0.0:float 1.0:float 0.0:float))
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_RIGHT))
+                (rotate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) -0.1:float  0.0:float 1.0:float 0.0:float))
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_DOWN))
+                (rotate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.1:float  1.0:float 0.0:float 0.0:float))
+            (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_UP))
+                (rotate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) -0.1:float  1.0:float 0.0:float 0.0:float))))
+      void)))
+
+;; (bind-func rotate_matrix
+;;   (lambda (mat:float* alpha:float x:float y:float z:float)
+
+
+(bind-func y3d_draw_loop
+  (let ((go:bool #t) (initialised:bool #f))
+    (lambda (time:i64)
+      (cond
+       (go
+        (move_viewpoint YBOT_3D_WINDOW)
+        (y3d_draw_frame)
+        (glfwPollEvents)
+        (glfwSwapBuffers YBOT_3D_WINDOW)
+        (let ((next_time (+ time (convert YBOT_3D_FRAMEDELTA))))
+          (callback next_time y3d_draw_loop next_time)
+          void))
+       (else void)))))
+
+(bind-func y3d_run:[void,bool]*
+  (lambda (flag:bool)
+    (cond
+     (flag
+      (cond
+       ((y3d_draw_loop.go:bool)
+        (cond
+         ((y3d_draw_loop.initialised:bool)
+          void)
+         (else
+          (y3d_draw_loop.initialised:bool #t)
+          (y3d_draw_loop (now)))))
+       (else
+        (y3d_draw_loop.go:bool #t)
+        (y3d_draw_loop (now))
+        void)))
+     (else
+      (y3d_draw_loop.go:bool #f)
+      void))))
+
+($ (y3d_run #t))
+
+($ (translate_matrix (aref-ptr YBOT_3D_VIEW_MAT 0) 0.0 0.0 -1.0))
+
+;; to stop the draw loop, eval this version of nvg_draw_loop
+;; (bind-func draw_loop
+;;  (lambda (time:i64)
+;;    (println "draw_loop callback stopped")
+;;    void))
+
+
+(define *xtmlib-ybot_3D-loaded* #t)

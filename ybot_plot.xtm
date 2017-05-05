@@ -10,7 +10,7 @@
  (sys:load "libs/external/glfw3.xtm")
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
 
-
+;; Override default extempore function from glfw3.xtm to suppress printing
 (bind-func VBO_create
   (lambda (buf:float* buflen)
     (let ((vbo:VBO* (halloc))
@@ -27,33 +27,83 @@
       (gl_print_error "Error setting VBO data")
       vbo)))
 
-
-(bind-val window GLFWwindow*
-  (begin
-    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_fullscreen_interaction_window)))
-
-(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
-
-(bind-val width float (glfw_get_window_width window))
-(bind-val height float (glfw_get_window_height window))
-
-(bind-val cx float (/ width 2.0:float))
-(bind-val cy float (/ height 2.0:float))
-
-(bind-val FRAMERATE float 60.)
-(bind-val FRAMEDURATION float (/ 1. FRAMERATE))
-(bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
-
-;($ (set! FRAMERATE 60.:float))
-;($ (set! FRAMEDELTA (* SAMPLERATE (/ 1.:float FRAMERATE))))
+;; Interpolation functions
+(bind-func lerp:[float,float,float,float]*
+  (lambda (t a b)
+    (+ (* t b) (* (- 1.0:float t) a))))
 
 
-(bind-val YBOT_PLOT_Y DynamicArray{float*}* (DynamicArray))
-(bind-val YBOT_PLOT_X DynamicArray{float*}* (DynamicArray))
-(bind-val YBOT_PLOT_T DynamicArray{float*}* (DynamicArray))
-(bind-val YBOT_PLOT_S DynamicArray{float*}* (DynamicArray))
-(bind-val YBOT_PLOT_MUTEX i8* (mutex_create))
+(bind-func lerp:[float,float,float,float,float,float]*
+  (lambda (x a0 b0 a1 b1)
+    (let ((d (- a1 a0)))
+      (cond
+       ((= d 0.0:float)
+        (/ (+ b0 b1) 2.0:float))
+       (else
+        (lerp:[float,float,float,float]* (/ (- x a0) d) b0 b1))))))
+    
+
+
+
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_fullscreen_interaction_window)))
+
+(bind-val YBOT_PLOT_WINDOW GLFWwindow*)
+(bind-val YBOT_PLOT_PIXEL_RATIO float 1.0:float)
+(bind-val YBOT_PLOT_WIDTH i32 0:i32)
+(bind-val YBOT_PLOT_HEIGHT i32 0:i32)
+(bind-val YBOT_PLOT_CX float 0.0:float)
+(bind-val YBOT_PLOT_CY float 0.0:float)
+(bind-val YBOT_PLOT_FRAMERATE float 60.)
+(bind-val YBOT_PLOT_FRAMEDURATION float (/ 1. YBOT_PLOT_FRAMERATE))
+(bind-val YBOT_PLOT_FRAMEDELTA float (* SAMPLERATE (/ 1. YBOT_PLOT_FRAMERATE)))
+
+(bind-val YBOT_PLOT_Y DynamicArray{float*}*)
+(bind-val YBOT_PLOT_X DynamicArray{float*}*)
+(bind-val YBOT_PLOT_T DynamicArray{float*}*)
+(bind-val YBOT_PLOT_S DynamicArray{float*}*)
+(bind-val YBOT_PLOT_MUTEX i8*)
+
+(bind-func yplot_initialise
+  (lambda (w:i64 h:i64)
+    (cond
+     ((null? YBOT_PLOT_WINDOW)
+      (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+      (set! YBOT_PLOT_WINDOW
+            (if (or (= w 0) (= h 0))
+                (glfw_init_and_create_interaction_window (i64toi32 w) (i64toi32 h))
+                (glfw_init_and_create_fullscreen_interaction_window)))
+      (set! YBOT_PLOT_PIXEL_RATIO (glfw_get_pixel_ratio YBOT_PLOT_WINDOW))
+      (set! YBOT_PLOT_WIDTH (glfw_get_window_width YBOT_PLOT_WINDOW))
+      (set! YBOT_PLOT_HEIGHT (glfw_get_window_height YBOT_PLOT_WINDOW))
+      (set! YBOT_PLOT_CX (/ (i32tof YBOT_PLOT_WIDTH) 2.0:float))
+      (set! YBOT_PLOT_CY (/ (i32tof YBOT_PLOT_HEIGHT) 2.0:float))
+      (set! YBOT_PLOT_Y (DynamicArray))
+      (set! YBOT_PLOT_X (DynamicArray))
+      (set! YBOT_PLOT_T (DynamicArray))
+      (set! YBOT_PLOT_S (DynamicArray))
+      (set! YBOT_PLOT_MUTEX (mutex_create))
+      #t)
+     (else
+      (println "Ybot_plot window is already initialised")
+      #f))))
+     
+(bind-func yplot_destroy
+  (lambda ()
+    (mutex_lock YBOT_PLOT_MUTEX)
+    (glfw_destroy_window YBOT_PLOT_WINDOW)
+    (set! YBOT_PLOT_WINDOW 0:i8*)
+    (DynamicArray_d YBOT_PLOT_Y) 
+    (DynamicArray_d YBOT_PLOT_X) 
+    (DynamicArray_d YBOT_PLOT_T) 
+    (DynamicArray_d YBOT_PLOT_S)
+    (mutex_unlock YBOT_PLOT_MUTEX)
+    (mutex_destroy YBOT_PLOT_MUTEX)
+    void))
+
+
 
 (bind-func auto_range_X:[void]*
   (lambda ()
@@ -67,17 +117,13 @@
        ((< 0.0:float c)
         (dotimes (i n)
           (let ((x:float (at YBOT_PLOT_X i)))
-            (push YBOT_PLOT_T (* 1.8:float (/ (- y mu) c)))))
+            (push YBOT_PLOT_T (* 1.8:float (/ (- x mu) c)))))
         void)
        (else
          (dotimes (i n)
            (push YBOT_PLOT_T (at YBOT_PLOT_X i))))))
     void))
 
-
-(bind-func test:[float,DynamicArray{float*}*]*
-  (lambda (v)
-    (sum v)))
 
 
 (bind-func auto_range_Y:[void]*
@@ -100,40 +146,28 @@
     void))
 
 
+(bind-val YBOT_PLOT_VIEW_MAT |16,float|) ;; view matrix
 
-;; (bind-val fbo FBO*)
-;; (bind-val ss_quad_vao VAO*)
+(bind-val YBOT_PLOT_SCOPE_VBO VBO*)
+(bind-val YBOT_PLOT_SCOPE_VAO VAO*)
+(bind-val YBOT_PLOT_SCOPE_PROG ShaderProgram)
 
-;; (call-as-xtlang
-;;  (let ((fbw_ptr:i32* (salloc))
-;;        (fbh_ptr:i32* (salloc)))
-;;    (glfwGetFramebufferSize window fbw_ptr fbh_ptr)
-;;    (println (set! fbo (FBO_create_with_textures (pref fbw_ptr 0) (pref fbh_ptr 0) #t)))
-;;    (set! ss_quad_vao (VAO_create_ss_quad))))
-
-
-;;(bind-val scope_vertex_data |1280,float|)
-(bind-val view_mat |16,float|) ;; view matrix
-
-(bind-val scope_vbo VBO*)
-(bind-val scope_vao VAO*)
-(bind-val scope_prog ShaderProgram)
-
-(bind-func reset_view_matrix
+(bind-func yplot_reset_view_matrix
   (lambda ()
-    (afill! view_mat
+    (afill! YBOT_PLOT_VIEW_MAT
          1.0 0.0 0.0 0.0
          0.0 1.0 0.0 0.0
          0.0 0.0 1.0 0.0
          0.0 0.0 0.0 1.0)))
 
 
-(call-as-xtlang
- (reset_view_matrix)
- (set! scope_prog
-       (ShaderProgram_create
-        (sys_slurp_file "libs/contrib/ybot/default_shader.vert")
-        (sys_slurp_file "libs/contrib/ybot/default_shader.frag"))))
+(bind-func initialise_scope_shaders
+  (lambda ()
+    (yplot_reset_view_matrix)
+    (set! YBOT_PLOT_SCOPE_PROG
+          (ShaderProgram_create
+           (sys_slurp_file "libs/contrib/ybot/default_shader.vert")
+           (sys_slurp_file "libs/contrib/ybot/default_shader.frag")))))
 
 
 ;;;;; Testing only ;;;;;
@@ -166,15 +200,15 @@
     (auto_range_Y)
     void))
 
-(generate-sinewave 441000 100.0)
+;(generate-sinewave 441000 100.0)
 
-(generate-noise 1000)
-(refresh_screen)
+;(generate-noise 1000)
+;(refresh_screen)
 
-($ (print YBOT_PLOT_Y))
-($ (print (glGet GL_LINE_WIDTH)))
+;($ (print YBOT_PLOT_Y))
+;($ (print (glGet GL_LINE_WIDTH)))
 
-(bind-func draw_frame
+(bind-func yplot_draw_frame
   (lambda ()
     (glEnable GL_LINE_SMOOTH)
     ;(glLineWidth 1.0:float)
@@ -182,8 +216,8 @@
     (glClear GL_COLOR_BUFFER_BIT)
     (glPointSize 20.0:float)
     ;; render the scope as normal
-    (glUseProgram scope_prog)
-                                        ;(mutex_lock YBOT_PLOT_MUTEX)
+    (glUseProgram YBOT_PLOT_SCOPE_PROG)
+    (mutex_lock YBOT_PLOT_MUTEX)
     (let*
         ((sz:i64 (size YBOT_PLOT_S)) (i:i64 0) (t1:float -1.0:float) (t2:float -1.0:float) (y1:float 0.0) (y2:float 0.0) 
          (sample_point_vertices:float* (salloc (* 5 sz))))
@@ -204,7 +238,7 @@
         (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0)))
         
       (VAO_bind_and_draw_arrays scope_vao GL_LINE_STRIP 0 (i64toi32 sz)))
-      ;(mutex_unlock YBOT_PLOT_MUTEX)
+      (mutex_unlock YBOT_PLOT_MUTEX)
     void))
 
 (refresh_screen)

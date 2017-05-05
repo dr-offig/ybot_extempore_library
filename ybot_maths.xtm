@@ -174,11 +174,11 @@
         (yfs_close handle)
         output))))
 
-(bind-func test-powf:[float,float,float]*
-  (lambda (x:float y:float)
-    (pow x y)))
+;; (bind-func test-powf:[float,float,float]*
+;;   (lambda (x:float y:float)
+;;     (pow x y)))
 
-(test-powf 3. 2.)
+;; (test-powf 3. 2.)
 
 ;;;;;;;;;;;;;;;;; Gaussians ;;;;;;;;;;;;;;;;;;
 (bind-func gaussian:[SAMPLE,SAMPLE,SAMPLE,SAMPLE]*
@@ -188,5 +188,7 @@
         (/ (exp (* (dtof -0.5) (pow (/ (- x mu) sigma) (dtof 2.0)))) (* sigma (sqrt STWOPI))))))
 
 
-
+;;;;;;;;;;;;;;;; Golden mean ;;;;;;;;;;;;;
+(bind-val PHI double (/ (+ 1 (sqrt 5)) 2))
+(bind-val FHI float (dtof PHI))
 (set! *xtmlib-ybot_maths-loaded* #t)
