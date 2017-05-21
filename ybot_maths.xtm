@@ -1,15 +1,13 @@
-;; Include guard
-(if (and (defined? '*xtmlib-ybot-math-loaded*) *xtmlib-ybot-math-loaded*)
-    (sys:load-escape "ybot_math library already loaded"))
-(define *xtmlib-ybot-math-loaded* #f)
+(sys:load-preload-check 'ybot_maths)
+(define *xtmlib-ybot_maths-loaded* #f)
 
-(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
-(if (not (defined? '*ybot-lib-dir*))
-    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-(sys:load (string-append *ybot-lib-dir* "/ybot_filesystem.xtm"))
+(impc:aot:suppress-aot-do
+ (sys:load "libs/core/math_ext.xtm")
+ (sys:load "libs/contrib/ybot/ybot_filesystem.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/core/math_ext.xtm")
+ (sys:load "libs/contrib/ybot/ybot_filesystem.xtm" 'quiet))
 
-;;(sys:load "libs/core/adt.xtm")
-(sys:load "libs/core/math_ext.xtm")
 
 (bind-func isnumeric:[bool,i8*]*
   (lambda (str)
@@ -176,11 +174,11 @@
         (yfs_close handle)
         output))))
 
-(bind-func test-powf:[float,float,float]*
-  (lambda (x:float y:float)
-    (pow x y)))
+;; (bind-func test-powf:[float,float,float]*
+;;   (lambda (x:float y:float)
+;;     (pow x y)))
 
-(test-powf 3. 2.)
+;; (test-powf 3. 2.)
 
 ;;;;;;;;;;;;;;;;; Gaussians ;;;;;;;;;;;;;;;;;;
 (bind-func gaussian:[SAMPLE,SAMPLE,SAMPLE,SAMPLE]*
@@ -190,5 +188,7 @@
         (/ (exp (* (dtof -0.5) (pow (/ (- x mu) sigma) (dtof 2.0)))) (* sigma (sqrt STWOPI))))))
 
 
-
-(set! *xtmlib-ybot-math-loaded* #t)
+;;;;;;;;;;;;;;;; Golden mean ;;;;;;;;;;;;;
+(bind-val PHI double (/ (+ 1 (sqrt 5)) 2))
+(bind-val FHI float (dtof PHI))
+(set! *xtmlib-ybot_maths-loaded* #t)
