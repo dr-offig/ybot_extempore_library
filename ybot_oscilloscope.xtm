@@ -58,8 +58,8 @@
 ;;   (lambda (value)
 ;;     (* cx (+ 1.0:float value))))
 
-(bind-val YBOT_SCOPE_X NonBlockFIFO* (NonBlockFIFO 256 8192))
-(bind-val YBOT_SCOPE_Y NonBlockFIFO* (NonBlockFIFO 256 8192))
+(bind-val YBOT_SCOPE_X FIFO{float*}* (FIFO 256 8192))
+(bind-val YBOT_SCOPE_Y FIFO{float*}* (FIFO 256 8192))
 (bind-val YBOT_SCOPE_CARRY_T float 0.0:float)
 (bind-val YBOT_SCOPE_CARRY_X float 0.0:float)
 (bind-val YBOT_SCOPE_CARRY_Y float 0.0:float)
