@@ -1,0 +1,300 @@
+(sys:load-preload-check 'ybot_oscilloscope)
+(define *xtmlib-ybot_oscilloscope-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm")
+ (sys:load "libs/contrib/ybot/ybot_maths.xtm")
+ )
+(impc:aot:insert-forms
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm")
+ (sys:load "libs/contrib/ybot/ybot_maths.xtm")
+ )
+
+;; this function from gl-objects is over-ridden here to suppress logging output
+(bind-func VBO_create
+  (lambda (buf:float* buflen)
+    (let ((vbo:VBO* (halloc))
+          (id:GLuint* (salloc)))
+      (glGenBuffers 1 id)
+      (gl_print_error "Error creating VBO")
+      (tfill! vbo
+              (pref id 0)
+              GL_FLOAT
+              (* buflen 4) ;; sizeof(float)
+              (cast buf GLvoid*))
+      (glBindBuffer GL_ARRAY_BUFFER (VBO_id vbo))
+      (glBufferData GL_ARRAY_BUFFER (VBO_size vbo) (VBO_data vbo) GL_STREAM_DRAW)
+      (gl_print_error "Error setting VBO data")
+      vbo)))
+
+
+;; this actually creates the window
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_fullscreen_interaction_window)))
+
+;; Once the window is created we can query its properties
+(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
+(bind-val width float (glfw_get_window_width window))
+(bind-val height float (glfw_get_window_height window))
+(bind-val cx float (/ width 2.0:float))
+(bind-val cy float (/ height 2.0:float))
+
+;; this is the video frame-rate
+(bind-val FRAMERATE float 60.)
+(bind-val FRAMEDURATION float (/ 1. FRAMERATE))
+(bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
+(bind-func frame_rate:[float,float]*
+  (lambda (rate)
+    (set! FRAMERATE rate)
+    (set! FRAMEDURATION f (/ 1. FRAMERATE))
+    (set! FRAMEDELTA (* SAMPLERATE (/ 1. FRAMERATE)))
+    rate))
+
+;; (bind-val YBOT_SCOPE_X FIFO{float*}* (FIFO 256 8192))
+;; (bind-val YBOT_SCOPE_Y FIFO{float*}* (FIFO 256 8192))
+;; (bind-val YBOT_SCOPE_CARRY_T float 0.0:float)
+;; (bind-val YBOT_SCOPE_CARRY_X float 0.0:float)
+;; (bind-val YBOT_SCOPE_CARRY_Y float 0.0:float)
+;; (bind-val YBOT_SCOPE_SCAN_FREQ float 5.0:float)
+;; (bind-val YBOT_SCOPE_MUTEX i8* (mutex_create))
+
+;; ($ (set! YBOT_SCOPE_SCAN_FREQ 100.0:float))
+
+
+;; (bind-func YbotScopeLog:[void,i64,float]*
+;;   (lambda (channel value)
+;;     (cond
+;;      ((= 1:i32 (mutex_trylock (YBOT_SCOPE_MUTEX)))
+;;       (push YBOT_SCOPE_Y (* 3.0:float value))
+;;       (let* ((delta_t:float (/ YBOT_SCOPE_SCAN_FREQ SRf))
+;;              (t:float (+ YBOT_SCOPE_CARRY_T delta_t)))
+;;         (if (>= t 1.0:float) (set! t -1.0:float))
+;;         (set! YBOT_SCOPE_CARRY_T t)
+;;         (push YBOT_SCOPE_X t))
+;;       (mutex_unlock YBOT_SCOPE_MUTEX)
+;;       void)
+;;      (else void))))
+      
+
+;; (bind-func dsp:DSP
+;;   (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+;;     (cond
+;;      ((= channel 0)
+;;       (YbotScopeLog channel in)
+;;       void)
+;;      (else void))
+;;     in))
+
+
+
+
+;; (dsp:set! dsp)
+
+;;-------------------
+
+
+(bind-val fbo FBO*)
+(bind-val ss_quad_vao VAO*)
+
+(call-as-xtlang
+ (let ((fbw_ptr:i32* (salloc))
+       (fbh_ptr:i32* (salloc)))
+   (glfwGetFramebufferSize window fbw_ptr fbh_ptr)
+   (println (set! fbo (FBO_create_with_textures (pref fbw_ptr 0) (pref fbh_ptr 0) #t)))
+   (set! ss_quad_vao (VAO_create_ss_quad))))
+
+
+
+;;(bind-val scope_vertex_data |1280,float|)
+(bind-val view_mat |16,float|) ;; view matrix
+
+;; (bind-val scope_vbo VBO*)
+;; (bind-val scope_vao VAO*)
+;; (bind-val scope_prog ShaderProgram)
+
+(bind-func reset_view_matrix
+  (lambda ()
+    (afill! view_mat
+         1.0 0.0 0.0 0.0
+         0.0 1.0 0.0 0.0
+         0.0 0.0 1.0 0.0
+         0.0 0.0 0.0 1.0)))
+
+(reset_view_matrix)
+
+
+;; (bind-func initialise-stuff
+;;   (lambda ()
+;;     (set! scope_prog
+;;           (ShaderProgram_create
+;;            (sys_slurp_file "examples/external/shader-tutorials/triangle.vert")
+;;            (sys_slurp_file "examples/external/shader-tutorials/triangle.frag")))
+;;     void))
+
+;; (initialise-stuff)
+
+;;-------------------
+
+
+(bind-val post_process_sp ShaderProgram)
+
+(bind-func create_post_process_shader
+  (lambda (vsource:i8* fsource:i8*)
+    (set! post_process_sp (ShaderProgram_create vsource fsource))))
+
+(create_post_process_shader
+ (sys:slurp-file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/framebuffer-post-process.vert")
+ (sys:slurp-file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/framebuffer-post-process.frag"))
+
+
+(bind-val screen_vert_data |30,float|)
+
+(bind-val screen_vbo VBO*)
+(bind-val screen_vao VAO*)
+(bind-val screen_prog ShaderProgram)
+
+($ (set! screen_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/compute_shader.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/compute_shader.frag"))))
+
+($ (run_oscilloscope #t))
+
+;; init data
+($ (afill! screen_vert_data
+         ;; pos      colour
+          -1.0  -1.0   0.0 0.0 0.0
+          -1.0   1.0   0.0 0.0 0.0
+          1.0   1.0    0.0 0.0 0.0
+          -1.0  -1.0   0.0 0.0 0.0
+          1.0   -1.0    0.0 0.0 0.0
+          1.0  1.0    0.0 0.0 0.0)
+   (reset_view_matrix)
+   (set! screen_vbo (VBO_create (aref-ptr screen_vert_data 0) 30))
+   (set! screen_vao (VAO_create))
+   (VAO_bind_attribute screen_vao screen_vbo 0 2 5 0) ;; position
+   (VAO_bind_attribute screen_vao screen_vbo 1 3 5 2) ;; tex_coord
+   void)
+
+
+;; (bind-func gl_draw
+;;   (let ((drawbufs_ptr:GLenum* (zalloc)))
+;;     (pset! drawbufs_ptr 0 GL_COLOR_ATTACHMENT0)
+;;     (lambda ()
+;;       ;; bind the second (render-to-texture) framebuffer
+;;       (glBindFramebuffer GL_FRAMEBUFFER (FBO_id fbo))
+;;       (glDrawBuffers 1 drawbufs_ptr)
+;;       ;; clear the framebuffer's colour and depth buffers
+;;       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;       ;; render the triangle as normal
+;;       (glUseProgram sp)
+;;       (glBindVertexArray (VAO_id vao))
+;;       (glDrawArrays GL_TRIANGLES 0 3)
+;;       ;; bind default framebuffer
+;;       (glBindFramebuffer GL_FRAMEBUFFER 0)
+;;       ;; clear the framebuffer's colour and depth buffers
+;;       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;       ;; our post-processing shader for the screen-space quad
+;;       (glUseProgram post_process_sp)
+;;       ;; bind the quad's VAO
+;;       (glBindVertexArray (VAO_id ss_quad_vao))
+;;       ;; activate the first texture slot and put texture from previous pass in it
+;;       (glActiveTexture GL_TEXTURE0)
+;;       (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo))
+;;       ;; draw the quad
+;;       (glDrawArrays GL_TRIANGLE_STRIP 0 4))))
+
+($ (run_oscilloscope #t))
+
+(bind-func draw_frame:[void]*
+  (let ((drawbufs_ptr:GLenum* (zalloc)) (t:float 0.0) (y:float 0.0) (dt:float 0.0)
+        (timeloc (glGetUniformLocation screen_prog "ct"))
+        (radiusloc (glGetUniformLocation screen_prog "radius"))
+        (screenWidthLoc (glGetUniformLocation screen_prog "screenWidth"))
+        (screenHeightLoc (glGetUniformLocation screen_prog "screenHeight"))
+        (a:float (convert 0.25)) (rate:float (convert .001)) (ct:float (convert 0.0)))
+    ;;(glEnable GL_LINE_SMOOTH)
+    (glEnable GL_BLEND)
+    (glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
+    (pset! drawbufs_ptr 0 GL_COLOR_ATTACHMENT0)
+    (lambda ()
+      (set! ct (modulo (+ ct rate) 1.0)) 
+      ;; bind the second (render-to-texture) framebuffer
+      (glBindFramebuffer GL_FRAMEBUFFER (FBO_id fbo))
+      (glDrawBuffers 1 drawbufs_ptr)
+      ;; clear the framebuffer's colour and depth buffers
+      ;;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      
+      (glUseProgram screen_prog)
+      (let ((loc (glGetUniformLocation screen_prog "view_mat")))
+        (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr view_mat 0))
+        (glUniform1f timeloc (convert ct))
+        (glUniform1f radiusloc (convert a))
+        (glUniform1f screenWidthLoc (convert width))
+        (glUniform1f screenHeightLoc (convert height))
+        (VAO_bind_and_draw_arrays screen_vao GL_TRIANGLES 0 6))
+   
+      ;; bind default framebuffer
+      (glBindFramebuffer GL_FRAMEBUFFER 0)
+      ;; clear the framebuffer's colour and depth buffers
+      ;;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      ;; our post-processing shader for the screen-space quad
+      (glUseProgram post_process_sp)
+      ;; bind the quad's VAO
+      (glBindVertexArray (VAO_id ss_quad_vao))
+      ;; activate the first texture slot and put texture from previous pass in it
+      (glActiveTexture GL_TEXTURE0)
+      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo))
+      ;; draw the quad
+      (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+      void)))
+
+
+(bind-func draw_loop
+  (let ((go:bool #t) (initialised:bool #f))
+    (lambda (time:i64)
+      (cond
+       (go
+        (draw_frame)
+        (glfwPollEvents)
+        (glfwSwapBuffers window)
+        (let ((next_time (+ time (convert FRAMEDELTA))))
+          (callback next_time draw_loop next_time)
+          void))
+       (else void)))))
+
+(bind-func run_oscilloscope:[void,bool]*
+  (lambda (flag:bool)
+    (cond
+     (flag
+      (cond
+       ((draw_loop.go:bool)
+        (cond
+         ((draw_loop.initialised:bool)
+          void)
+         (else
+          (draw_loop.initialised:bool #t)
+          (draw_loop (now)))))
+       (else
+        (draw_loop.go:bool #t)
+        (draw_loop (now))
+        void)))
+     (else
+      (draw_loop.go:bool #f)
+      void))))
+
+;; to stop the draw loop, eval this version of nvg_draw_loop
+;; (bind-func draw_loop
+;;  (lambda (time:i64)
+;;    (println "draw_loop callback stopped")
+;;    void))
+
+($ (run_oscilloscope #t))
+
+(define *xtmlib-ybot_oscilloscope-loaded* #t)

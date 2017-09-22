@@ -324,6 +324,42 @@
 
 (draw_frame.delay3)
 
+
+
+;;;;;;;;;;;; Crazy image generators #1 ;;;;;;;;;;
+
+;; animate_parameter arguments
+;; start_time duration start_value end_value curve loop_style)
+
+(bind-func draw_frame:[void]*
+  (let ((bgc (NVGcolor 1.0 1.0 1.0 0.01))
+        (rd:aniparam_t (animate_parameter (now) 12345 0.0:float 0.5:float sine_curve 2))
+        (gr:aniparam_t (animate_parameter (now) 23456 0.0:float 0.5:float sine_curve 2))
+        (bl:aniparam_t (animate_parameter (now) 34567 0.0:float 0.5:float sine_curve 2))
+        (toggle:bool #f))
+    (lambda ()
+      (nvgBeginFrame vg (convert width) (convert height) pixel_ratio)
+      ;;(nvgResetTransform vg)
+      ;;( _clear_background vg bgc)
+      (nvgBeginPath vg)
+      (let ((fgc (NVGcolor (rd (now)) (gr (now)) (bl (now)) 0.5))
+            (x:float (* width (dtof (random))))
+            (y:float (* height (dtof (random))))
+            (d:float (* height 0.15:float (dtof (random)))))
+        (cond
+         (toggle
+          (nvgRect vg x 0.0:float d height)
+          (nvgCircle vg x y d))
+         (else
+          (nvgRect vg 0.0:float y width d)
+          (nvgCircle vg x y d)))
+        (set! toggle (not toggle))
+        (nvgFillColor vg fgc)
+        (nvgFill vg))
+      (nvgEndFrame vg))))
+      
+
+
 (bind-func nvg_draw_loop
   (lambda (time:i64 delta:float)
     ;;(nvg_clear)
@@ -335,7 +371,7 @@
 
 ($ (clear_background vg (NVGcolor 0.0 0.0 0.0 1.0)))
 ($ (nvg_draw_loop (now) FRAMEDELTA))
-
+($ (clear_background vg (NVGcolor 0.0 0.0 0.0 0.0)))
 
 ;; to stop the draw loop, eval this version of nvg_draw_loop
 (bind-func nvg_draw_loop

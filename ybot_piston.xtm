@@ -1,0 +1,37 @@
+(sys:load-preload-check 'ybot_piston)
+(define *xtmlib-ybot_piston-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
+
+(bind-func generate_recursion_coefficients:[double*,double,i64]*
+  (lambda (ka NN)
+    (let ((A:double* (alloc NN)))
+      (pset! A 0 (/ (* ka ka) 2.0))
+      (let ((loop:[void,i64]*
+             (lambda (nn:i64)
+               (cond
+                ((< nn NN)
+                 (let ((n:double (i64tod nn)))
+                   (pset! A nn (* -1.0 ka ka (pref A (- nn 1)) (/ (- (* 2.0 n) 1.0) (+ (* 36.0 n n n) (* -26.0 n) 6.0)))) 
+                   (loop (+ nn 1))))
+                (else
+                 void)))))
+        (loop 1)
+        A))))
+
+
+(bind-func test_coefficients
+  (lambda (NN:i64 ka:double)
+    (let ((A:DynamicArray{double*}* (DynamicArray (generate_recursion_coefficients ka NN) NN)))
+      (yplot A)
+      void)))
+
+($ (test_coefficients 50 170.324))
+
+
+
+
+(set! *xtmlib-ybot_piston-loaded* #t)
