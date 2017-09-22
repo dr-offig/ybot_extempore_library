@@ -1,16 +1,23 @@
 ;; Include guard
-(if (and (defined? '*xtmlib-ybot-audio-file-reader-loaded*) *xtmlib-ybot-audio-file-reader-loaded*)
-    (sys:load-escape "ybot_audio_file_reader library already loaded"))
-(define *xtmlib-ybot-audio-file-reader-loaded* #f)
+;; (if (and (defined? '*xtmlib-ybot-audio-file-reader-loaded*) *xtmlib-ybot-audio-file-reader-loaded*)
+;;     (sys:load-escape "ybot_audio_file_reader library already loaded"))
+;; (define *xtmlib-ybot-audio-file-reader-loaded* #f)
 
-(if (not (defined? '*ybot-lib-dir*))
-    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;;(sys:load (string-append *ybot-lib-dir* "/samplerate.xtm"))
 
-;; Dependencies
-(sys:load "libs/aot-cache/audio_dsp.xtm")
-(sys:load "libs/aot-cache/sndfile.xtm")
-(sys:load "libs/core/xthread.xtm")
+(sys:load "libs/aot-cache/ybot_audio_file_reader.xtm" 'quiet)
+(sys:load-preload-check 'ybot_audio_file_reader)
+(define *xtmlib-ybot_audio_file_reader-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/core/audio_dsp.xtm")
+ (sys:load "libs/external/sndfile.xtm")
+ (sys:load "libs/core/xthread.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/core/audio_dsp.xtm")
+ (sys:load "libs/external/sndfile.xtm")
+ (sys:load "libs/core/xthread.xtm"))
+
+(impc:aot:insert-header "xtmybot_audio_file_reader")
 
 (bind-val SEEK_SET i32 0)
 (bind-val SEEK_CUR i32 1)
@@ -244,22 +251,22 @@
 
 
 ;;;;; Example usage ;;;;;;
-(bind-func dsp:DSP
- (let* ((playhead:i64 100000)
-        (playing:i64 1)
-        (master_gain:float 0.2)
-        (reader (YbotAudioFileReader_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav" (* 44100 3)))
-        (val:float 0.0))
-   (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
-     (if (< 0 playing)
-         (set! val (reader playhead channel))
-         (set! val (dtof 0.0)))
-     (cond ((= channel 0)
-            (set! playhead (+ playhead 1))
-            (cond ((> playhead (reader.frames))
-                   (println "Looping")
-                   (set! playhead 0)))))
-     (* master_gain val))))
+;; (bind-func dsp:DSP
+;;  (let* ((playhead:i64 100000)
+;;         (playing:i64 1)
+;;         (master_gain:float 0.2)
+;;         (reader (YbotAudioFileReader_c "/Users/s2805534/Dropbox/ybot/grants/SwishGoTheFish/audio/Crossbows/Toby_CrossbowsMixStereo.wav" (* 44100 3)))
+;;         (val:float 0.0))
+;;    (lambda (in:SAMPLE time:i64 channel:i64	data:SAMPLE*)
+;;      (if (< 0 playing)
+;;          (set! val (reader playhead channel))
+;;          (set! val (dtof 0.0)))
+;;      (cond ((= channel 0)
+;;             (set! playhead (+ playhead 1))
+;;             (cond ((> playhead (reader.frames))
+;;                    (println "Looping")
+;;                    (set! playhead 0)))))
+;;      (* master_gain val))))
 
 
 ;; (bind-func dsp:DSP
@@ -293,9 +300,10 @@
 
 
 
-(dsp:set! dsp)
-(dsp.master_gain 0.5)
+;;(dsp:set! dsp)
+;;(dsp.master_gain 0.5)
 ;; (dsp.playhead 0)
-(dsp.playing 1)
+;;(dsp.playing 1)
+(define *xtmlib-ybot_audio_file_reader-loaded* #t)
+(impc:aot:insert-footer "xtmybot_audio_file_reader")
 
-(set! *xtmlib-ybot-audio-file-reader-loaded* #t)

@@ -6,13 +6,18 @@
 (impc:aot:insert-forms
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
 
-;(define osc-output-address (cons "localhost" 7020))
+(define osc-output-address (cons "192.168.2.6" 7562))
 
+
+;; Some a test message delayed by 4 seconds
+(io:osc:send (+ (now) (* *second* 4)) addy1 "/test/msg" "Hello" 500 6.6 "World")
+(io:osc:send (+ (now) (* *second* 4)) addy2 "/test/msg" "Hello" 500 6.6 "World")
 
 (define (osc-receive timestamp address . args)
-    (println 'port 7020 address '-> args))
+  (println 'port 7563 address '-> args)
+  (io:osc:send (now) osc-output-address "/osc-setup-reply"))
 
-(io:osc:start-server 7020 "osc-receive")
+(io:osc:start-server 7563 "osc-receive")
 
 
 

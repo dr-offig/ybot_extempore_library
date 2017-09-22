@@ -4,12 +4,15 @@
 (impc:aot:suppress-aot-do
  (sys:load "libs/external/gl/gl-objects.xtm")
  (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/core/scheduler.xtm")
  (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
 (impc:aot:insert-forms
  (sys:load "libs/external/gl/gl-objects.xtm")
  (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/core/scheduler.xtm")
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
 
+(run_main_event_loop)
 
 (bind-func VBO_create
   (lambda (buf:float* buflen)
@@ -28,15 +31,21 @@
       vbo)))
 
 
+(bind-val width i32 1024)
+(bind-val height i32 768)
+ 
 (bind-val window GLFWwindow*
+  ;; some of the shaders in the graphics pipeline use older glsl
+  ;; versions, so we need a "compatibility" graphics context
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_fullscreen_interaction_window)))
+    (glfw_init_and_create_interaction_window width height)))
+
 
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
 
-(bind-val width float (glfw_get_window_width window))
-(bind-val height float (glfw_get_window_height window))
+;(bind-val width float (glfw_get_window_width window))
+;(bind-val height float (glfw_get_window_height window))
 
 (bind-val cx float (/ width 2.0:float))
 (bind-val cy float (/ height 2.0:float))
@@ -58,8 +67,8 @@
 ;;   (lambda (value)
 ;;     (* cx (+ 1.0:float value))))
 
-(bind-val YBOT_SCOPE_X NonBlockFIFO* (NonBlockFIFO 256 8192))
-(bind-val YBOT_SCOPE_Y NonBlockFIFO* (NonBlockFIFO 256 8192))
+(bind-val YBOT_SCOPE_X FIFO{float*}* (FIFO 256 8192))
+(bind-val YBOT_SCOPE_Y FIFO{float*}* (FIFO 256 8192))
 (bind-val YBOT_SCOPE_CARRY_T float 0.0:float)
 (bind-val YBOT_SCOPE_CARRY_X float 0.0:float)
 (bind-val YBOT_SCOPE_CARRY_Y float 0.0:float)
@@ -341,7 +350,7 @@
 
 ;; ($ (nvg_draw_loop (now) FRAMEDELTA))
 
-($ (printf "%d\n" (draw_loop.go:bool)))
+;($ (printf "%d\n" (draw_loop.go:bool)))
 
 
 (bind-func draw_loop
@@ -350,7 +359,7 @@
       (cond
        (go
         (draw_frame)
-        (glfwPollEvents)
+        ;(glfwPollEvents)
         (glfwSwapBuffers window)
         (let ((next_time (+ time (convert FRAMEDELTA))))
           (callback next_time draw_loop next_time)
@@ -383,5 +392,5 @@
 ;;    (println "draw_loop callback stopped")
 ;;    void))
 
-
+($ (run_oscilloscope #t))
 (define *xtmlib-ybot_oscilloscope-loaded* #t)
