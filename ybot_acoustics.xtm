@@ -27,10 +27,15 @@
 
 
 ;; this actually creates the window
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_fullscreen_interaction_window)))
 (bind-val window GLFWwindow*
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_fullscreen_interaction_window)))
+    (glfw_init_and_create_interaction_window 1000 1000)))
+
 
 ;; Once the window is created we can query its properties
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
@@ -56,13 +61,13 @@
 (bind-val mp_vbo VBO*)
 (bind-val mp_vao VAO*)
 (bind-val mp_prog ShaderProgram)
-(bind-val speaker_spacing float 0.05)
-(bind-val speaker_radius float 0.05)
+(bind-val speaker_spacing float 0.1)
+(bind-val speaker_radius float 0.5)
 
 (bind-func initialise_n_shaders
   (lambda (n:i64)
     (set! num_pokes n)
-    (set! speaker_spacing (/ 0.5:float (i64tof num_pokes)))
+    (set! speaker_spacing (/ 1.0:float (i64tof num_pokes)))
     (set! speaker_radius (* 0.5:float speaker_spacing))
     (set! mp_prog
          (ShaderProgram_create
@@ -86,7 +91,9 @@
     void))
 
 (initialise_n_shaders 7)
-($ (run_oscilloscope #f))
+;($ (run_oscilloscope #f))
+
+($ (glGet GL_POINT_SIZE))
 
 (bind-func draw_frame:[void]*
   (let ((timeloc (glGetUniformLocation mp_prog "ct"))
@@ -97,7 +104,9 @@
         (a:float speaker_radius) (rate:float (convert .001)) (ct:float (convert 0.0)))
     (glEnable GL_BLEND)
     (glBlendFunc GL_ONE GL_ONE)
-    (glClearColor 0.0 0.0 0.0 1.0)
+    (glClearColor 0.0 0.0 1.0 1.0)
+    (glDisable GL_PROGRAM_POINT_SIZE)
+    (glPointSize 1000.0)
     (lambda ()
       ;; update clock
       (set! ct (modulo (+ ct rate) 1.0)) 

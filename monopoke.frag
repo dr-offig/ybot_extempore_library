@@ -75,7 +75,7 @@ void main () {
   //frag_colour = HyperbolicGreyScale(val);
 
   /*
-  */
+  
   float v = val / N;
   
   if ((b > 0.495) || (x > 0.995)) {
@@ -86,7 +86,7 @@ void main () {
     if (y < a) {
       frag_colour = vec4(1.0,1.0,0.0,1.0);
     } else {
-        frag_colour = vec4(0.0,0.0,0.0,0.0);
+        frag_colour = vec4(1.0,0.0,0.0,0.0);
     }
   } else {
 
@@ -98,5 +98,7 @@ void main () {
       frag_colour = vec4(v,v,v,1.0);
     }
   }
-    
+  */  
+  frag_colour = vec4(gl_FragCoord.x, gl_FragCoord.y,0.0,1.0);
+  
 }

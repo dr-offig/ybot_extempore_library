@@ -1,9 +1,3 @@
-;; Include guard
-;; (if (and (defined? '*xtmlib-ybot-audio-file-reader-loaded*) *xtmlib-ybot-audio-file-reader-loaded*)
-;;     (sys:load-escape "ybot_audio_file_reader library already loaded"))
-;; (define *xtmlib-ybot-audio-file-reader-loaded* #f)
-
-
 (sys:load "libs/aot-cache/ybot_audio_file_reader.xtm" 'quiet)
 (sys:load-preload-check 'ybot_audio_file_reader)
 (define *xtmlib-ybot_audio_file_reader-loaded* #f)
@@ -11,11 +5,13 @@
 (impc:aot:suppress-aot-do
  (sys:load "libs/core/audio_dsp.xtm")
  (sys:load "libs/external/sndfile.xtm")
- (sys:load "libs/core/xthread.xtm"))
+ (sys:load "libs/core/xthread.xtm")
+ (sys:load "libs/contrib/ybot/ybot_base.xtm"))
 (impc:aot:insert-forms
  (sys:load "libs/core/audio_dsp.xtm")
  (sys:load "libs/external/sndfile.xtm")
- (sys:load "libs/core/xthread.xtm"))
+ (sys:load "libs/core/xthread.xtm")
+ (sys:load "libs/contrib/ybot/ybot_base.xtm"))
 
 (impc:aot:insert-header "xtmybot_audio_file_reader")
 
@@ -72,17 +68,20 @@
 
 (bind-func YbotAudioFileBuffer_d:[void,YbotAudioFileBuffer*]*
   (lambda (buffer)
-    (mutex_destroy (pref (tref buffer 9) 0))
+    (con buffer
+         (mutex_destroy (pref (tref buffer 9) 0)))
     void))
 
 (bind-func YAFB_lock:[void,YbotAudioFileBuffer*]*
   (lambda (buffer)
-    (mutex_lock (pref (tref buffer 9) 0))
+    (con buffer
+         (mutex_lock (pref (tref buffer 9) 0)))
     void))
 
 (bind-func YAFB_unlock:[void,YbotAudioFileBuffer*]*
   (lambda (buffer)
-    (mutex_unlock (pref (tref buffer 9) 0))
+    (con buffer
+         (mutex_unlock (pref (tref buffer 9) 0)))
     void))
 
 (bind-func YAFB_trylock:[bool,YbotAudioFileBuffer*]*
@@ -191,7 +190,7 @@
               ;; read the audio data from the file into buffer1
               (println "About to read into buffer1")
               (set! frames_read (YAFB_load_from_file_offset buffer1 0))
-              (println "Read in " frames_read " frames")
+              (println "Have read in " frames_read " frames")
               (lambda (frame channel)
                 (let*
                     ((f (modulo frame frames))
@@ -240,13 +239,16 @@
   
 (bind-func YbotAudioFileReader_d:[i32,YbotAudioFileReader_t]*
   (lambda (yafr)
-    (let*
+    (cond
+     ((non-null yafr)
+      (let*
         ((af:i8* (yafr.audiofile))
          (buffer1:YbotAudioFileBuffer* (yafr.buffer1))
          (buffer2:YbotAudioFileBuffer* (yafr.buffer2)))
       (YbotAudioFileBuffer_d buffer2)
       (YbotAudioFileBuffer_d buffer1)
-      (sf_close af))))
+      (sf_close af)))
+     (else -1:i32))))
 
 
 
@@ -277,30 +279,30 @@
 
 
 
-;; (bind-func dsp:DSPMC
-;;  (let* ((playhead:i64 0)
-;;         (playing:i64 1)
-;;         (master_gain:float 0.2)
-;;         (reader (YbotAudioFileReader_c "/Users/s2805534/Music/iTunes/iTunes\ Media/Music/Absolute\ Music/Absolute\ Disco\ Classics\ \[Disc\ 1\]/1-07\ Born\ To\ Be\ Alive.aiff" (* 44100 10))))
-;;    (lambda (in:float* out:float* time:i64 userData:i8*)
-;;      (let ((c:i64 0) (f:i64 0))
-;;        (cond
-;;         ((< 0 playing)
-;;          (dotimes (f FRAMES)
-;;            (dotimes (c CHANNELS)
-;;              (pset! out (+ c (* f CHANNELS)) (reader playhead c))))
-;;          (set! playhead (+ playhead FRAMES))
-;;          (cond
-;;           ((> playhead (reader.frames))
-;;            (println "Looping")
-;;            (set! playhead 0)
-;;            void)
-;;           (else void)))
-;;         (else void))))))
+(bind-func dsp:DSPMC
+ (let* ((playhead:i64 0)
+        (playing:i64 1)
+        (master_gain:float 0.2)
+        (reader (YbotAudioFileReader_c "/Users/ybot/Desktop/pink_noise.wav" 44100)))
+   (lambda (in:float* out:float* time:i64 userData:i8*)
+     (let ((c:i64 0) (f:i64 0))
+       (cond
+        ((< 0 playing)
+         (dotimes (f FRAMES)
+           (dotimes (c (i32toi64 CHANNELS))
+             (pset! out (+ c (* f (i32toi64 CHANNELS))) (reader playhead c))))
+         (set! playhead (+ playhead FRAMES))
+         (cond
+          ((> playhead (reader.frames))
+           (println "Looping")
+           (set! playhead 0)
+           void)
+          (else void)))
+        (else void))))))
 
 
 
-;;(dsp:set! dsp)
+(dsp:set! dsp)
 ;;(dsp.master_gain 0.5)
 ;; (dsp.playhead 0)
 ;;(dsp.playing 1)

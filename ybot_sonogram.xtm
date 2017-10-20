@@ -159,38 +159,56 @@
 ;(generate_rectangle)
 ;(refresh_screen)
 
+(bind-func test
+  (lambda (fname:i8* n:i64)
+    (let* ((afr:YbotAudioFileReader_t (YbotAudioFileReader_c fname n))
+           (buffer:SAMPLE* (halloc n))
+           (frames:i64 (afr.frames:i64)) (frame:i64 0))
+      (printf "Read in %lld frames\n" frames)
+      (dotimes (frame n)
+        (pset! buffer frame (afr frame 0))
+        (printf "%0.8f\n" (afr frame 0)))
+      (printf "Copied %lld frames\n" n)
+      buffer)))
+
+
+
+
 (bind-func zap:[void,!a]*
   (lambda (ptr)
     (if (not (null? ptr)) (begin (free ptr) (set! ptr (convert 0))))
     void))
 
 
-(bind-func ysg_audio_file:[SAMPLE*,i8*,i64]* 1000000
+(bind-func ysg_audio_file:[SAMPLE*,i8*]* 1000000
   (let ((buffer:SAMPLE* (convert 0))
         (frames:i64 0) (a:i64 0) (n:i64 4096) (b:i64 (+ a n))
         (reader:YbotAudioFileReader_t (convert 0))
         (zone_cleanup (begin (zap buffer) (YbotAudioFileReader_d reader) (set! reader (convert 0)))))
-    (lambda (filename:i8* channel:i64)
+    (lambda (filename:i8*)
       (zap buffer)
       (if (not (null? reader)) (begin (YbotAudioFileReader_d reader) (set! reader (convert 0))))
       (set! reader (YbotAudioFileReader_c filename n))
       (set! frames (reader.frames:i64))
-      (let ((tmp:SAMPLE* (halloc frames))
-            (frame:i64 0))
-        (set! buffer tmp)
-        (dotimes (frame frames)
-          (pset! buffer frame (reader frame channel)))
-        (printf "Copied %lld samples\n" frames)
-        (set! YBOT_SONOGRAM_AUDIO_DATA buffer)
         ;(generate_sonogram YBOT_SONOGRAM_AUDIO_DATA 0 2048 512 256)
         ;(refresh_screen)
-        buffer))))
+      buffer)))
+
 
 (bind-func view_audio_data
-  (lambda (a:i64 n:i64 w:i64)
-
-    (generate_sonogram YBOT_SONOGRAM_AUDIO_DATA a (+ a n) w (/ w 2))
-    (refresh_screen)))
+  (lambda (a:i64 n:i64 c:i64 w:i64)
+    (let* ((reader:YbotAudioFileReader_t (ysg_audio_file.reader))
+          (buffer:SAMPLE* (ysg_audio_file.buffer))
+          (frames:i64 (ysg_audio_file.frames))
+          (tmp:SAMPLE* (halloc n)) (frame:i64 0))
+        (set! buffer tmp)
+        (dotimes (frame n)
+          (printf "%0.8f\t" (reader frame c))
+          (pset! buffer frame (reader frame c)))
+        (println)
+        (set! YBOT_SONOGRAM_AUDIO_DATA buffer)
+        (generate_sonogram YBOT_SONOGRAM_AUDIO_DATA a (+ a n) w (/ w 2))
+        (refresh_screen))))
     
 (bind-func examine_audio_data
   (lambda (a:i64 n:i64)
@@ -203,8 +221,9 @@
     
 
 
-(load_audio_file "/Users/ybot/Documents/Ecoacoustics/InvisiblePlaces2017/DinnerPreparationSnippet1_Binaural.wav" 0)
+(ysg_audio_file "/Users/ybot/Documents/Ecoacoustics/InvisiblePlaces2017/DinnerPreparationSnippet1_Binaural.wav")
+(test "/Users/ybot/Documents/Ecoacoustics/InvisiblePlaces2017/DinnerPreparationSnippet1_Binaural.wav" 128)
 
-($ (view_audio_data 10000 2048 32))
+($ (view_audio_data 0 256 0 32))
 
 (define *xtmlib-ybot_sonogram-loaded* #t)

@@ -898,7 +898,7 @@
      ((= 0:i32 (strcmp (tref var 2) "float"))
       (printf "float: %f" (ftod (pref (bitcast (tref var 0) float*) 0))))
      ((= 0:i32 (strcmp (tref var 2) "cstr"))
-      (printf "string: %s" (tref var 2)))
+      (printf "string: %s" (tref var 0)))
      ((= 0:i32 (strcmp (tref var 2) "blob"))
       (printf "Binary data length %ld" (tref var 1)))
      (else (printf "unknown typestring: %s" (tref var 2))))
