@@ -51,8 +51,23 @@
               (else
                b)))))
       (loop 0 0))))
-               
 
+
+
+(bind-func print_byte:[void,i64]*
+  (lambda (d)
+    (let* ((bits:|8,bool|* (alloc)))
+      (doloop (n 8)
+        (aset! bits n (not (= 0 (modulo d 2))))
+        (set! d (/ d 2)))
+      (doloop (m 8)
+        (if (aref bits (- 7 m))
+            (printf "%d" 1)
+            (printf "%d" 0)))
+      (printf "\n")
+      void)))
+
+              
 ;; For colourful log printing
 (bind-func colour_pencil:[void,i8*]*
   (lambda (name)

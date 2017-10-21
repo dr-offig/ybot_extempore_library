@@ -1,0 +1,229 @@
+(sys:load-preload-check 'ybot_sonogram)
+(define *xtmlib-ybot_sonogram-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+  (sys:load "libs/contrib/ybot/ybot_audio_file_reader.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm")
+  (sys:load "libs/contrib/ybot/ybot_audio_file_reader.xtm" 'quiet))
+
+;; Override default extempore function from glfw3.xtm to suppress printing
+(bind-func VBO_create
+  (lambda (buf:float* buflen)
+    (let ((vbo:VBO* (halloc))
+          (id:GLuint* (salloc)))
+      (glGenBuffers 1 id)
+      (gl_print_error "Error creating VBO")
+      (tfill! vbo
+              (pref id 0)
+              GL_FLOAT
+              (* buflen 4) ;; sizeof(float)
+              (cast buf GLvoid*))
+      (glBindBuffer GL_ARRAY_BUFFER (VBO_id vbo))
+      (glBufferData GL_ARRAY_BUFFER (VBO_size vbo) (VBO_data vbo) GL_STREAM_DRAW)
+      (gl_print_error "Error setting VBO data")
+      vbo)))
+
+
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_fullscreen_interaction_window)))
+
+
+;; Find the screen width and height
+(bind-val screen_width float 1280.0:float)
+(bind-val screen_height float 720.0:float)
+(bind-func getWindowSize
+  (lambda ()
+    (let ((w_ptr:i32* (salloc))
+          (h_ptr:i32* (salloc)))
+      (glfwGetWindowSize window w_ptr h_ptr)
+      (set! screen_width (i32tof (pref w_ptr 0)))
+      (set! screen_height (i32tof (pref h_ptr 0)))
+      void)))
+
+(getWindowSize)
+      
+
+;; Globals
+(bind-val YBOT_SONOGRAM_VIEW_MAT |16,float|) ;; view matrix
+(bind-val YBOT_SONOGRAM_VBO VBO*)
+(bind-val YBOT_SONOGRAM_VAO VAO*)
+(bind-val YBOT_SONOGRAM_PROG ShaderProgram)
+(bind-val YBOT_SONOGRAM_VERTICES float*)
+(bind-val YBOT_SONOGRAM_TIME_NBINS i64 4096)
+(bind-val YBOT_SONOGRAM_FREQ_NBINS i64 512)
+(bind-val YBOT_SONOGRAM_COUNT i64 (* YBOT_SONOGRAM_TIME_NBINS YBOT_SONOGRAM_FREQ_NBINS)) 
+(bind-val YBOT_SONOGRAM_AUDIO_DATA SAMPLE*)
+(bind-val YBOT_SONOGRAM_CELL_SIZE float 5.0)
+
+(bind-func ysg_reset_view_matrix
+  (lambda ()
+    (afill! YBOT_SONOGRAM_VIEW_MAT
+         1.0 0.0 0.0 0.0
+         0.0 1.0 0.0 0.0
+         0.0 0.0 1.0 0.0
+         0.0 0.0 0.0 1.0)))
+
+
+(bind-func ysg_initialise_shaders
+  (lambda ()
+    (ysg_reset_view_matrix)
+    (set! YBOT_SONOGRAM_PROG
+           (ShaderProgram_create
+           (sys_slurp_file "libs/contrib/ybot/sonogram.vert")
+           (sys_slurp_file "libs/contrib/ybot/sonogram.frag")))
+    void))
+
+
+(ysg_initialise_shaders)
+
+(bind-func colourise:[float,SAMPLE,SAMPLE]*
+  (lambda (x m)
+    (+ (/ (convert x) (* 2.0:float (convert m))) 0.5:float)))
+
+
+(bind-func generate_sonogram:[void,SAMPLE*,i64,i64,i64,i64]*
+  (lambda (audio:SAMPLE* startFrame:i64 endFrame:i64 windowSize:i64 hop:i64)
+    (let* ((frames:i64 (- endFrame startFrame))
+           (time_bins:i64 (* windowSize (/ frames hop)))
+           (freq_bins:i64 windowSize)
+           (count:i64 (* freq_bins time_bins))
+           (ptr:float* (halloc (* 5 count)))
+           (s:float 0.95:float)
+           (hspace:float (/ (* 2.0:float s) (i64tof time_bins)))
+           (vspace:float (/ (* 2.0:float s) (i64tof freq_bins)))
+           (t:i64 0) (f:i64 0) (cc:i64 0))
+      (set! YBOT_SONOGRAM_VERTICES ptr)
+      (set! YBOT_SONOGRAM_COUNT count)
+      (set! YBOT_SONOGRAM_CELL_SIZE (/ (* screen_height vspace) 2.0:float))
+      (dotimes (t time_bins)
+        (dotimes (f freq_bins)
+          (let ((sample:SAMPLE (pref audio t))
+                (value:float (colourise sample 1.0:float)))
+            (pset! YBOT_SONOGRAM_VERTICES (+ cc 0) (* (i64tof (- t (/ time_bins 2))) hspace))
+            (pset! YBOT_SONOGRAM_VERTICES (+ cc 1) (* (i64tof (- f (/ freq_bins 2))) vspace))
+            (pset! YBOT_SONOGRAM_VERTICES (+ cc 2) 0.0:float)
+            (pset! YBOT_SONOGRAM_VERTICES (+ cc 3) 0.0:float)
+            (pset! YBOT_SONOGRAM_VERTICES (+ cc 4) value)
+            (set! cc (+ cc 5)))))
+      (set! YBOT_SONOGRAM_VBO (VBO_create YBOT_SONOGRAM_VERTICES (* 5 YBOT_SONOGRAM_COUNT)))
+      (set! YBOT_SONOGRAM_VAO (VAO_create))
+      (VAO_bind_attribute YBOT_SONOGRAM_VAO YBOT_SONOGRAM_VBO 0 2 5 0) ;; position
+      (VAO_bind_attribute YBOT_SONOGRAM_VAO YBOT_SONOGRAM_VBO 1 3 5 2) ;; colour
+      void)))
+
+
+
+(bind-func generate_rectangle:[void]*
+  (lambda ()
+    (let ((ptr:float* (halloc (* 5 4))))
+      (pfill! ptr
+              -0.5 -0.5 1.0 0.0 0.0
+              -0.5 0.5 1.0 0.0 0.0
+              0.5 0.5 1.0 0.0 0.0
+              0.5 -0.5 1.0 0.0 0.0)
+      (set! YBOT_SONOGRAM_COUNT 4)
+      (set! YBOT_SONOGRAM_VERTICES ptr)
+      (set! YBOT_SONOGRAM_VBO (VBO_create YBOT_SONOGRAM_VERTICES (* 5 YBOT_SONOGRAM_COUNT)))
+      (set! YBOT_SONOGRAM_VAO (VAO_create))
+      (VAO_bind_attribute YBOT_SONOGRAM_VAO YBOT_SONOGRAM_VBO 0 2 5 0)
+      (VAO_bind_attribute YBOT_SONOGRAM_VAO YBOT_SONOGRAM_VBO 1 3 5 2)
+      void)))
+      
+
+(bind-func ysg_draw_frame
+  (lambda ()
+    (glClearColor 0.0 0.0 0.0 1.0)
+    (glClear (bor GL_COLOR_BUFFER_BIT  (bor GL_DEPTH_BUFFER_BIT  GL_STENCIL_BUFFER_BIT)))
+    (glDisable GL_PROGRAM_POINT_SIZE)
+    (glPointSize YBOT_SONOGRAM_CELL_SIZE)
+    (glDisable GL_LINE_SMOOTH)
+    (glUseProgram YBOT_SONOGRAM_PROG)
+    (let ((loc (glGetUniformLocation YBOT_SONOGRAM_PROG "view_mat")))
+      (glUniformMatrix4fv loc 1 GL_FALSE (aref-ptr YBOT_SONOGRAM_VIEW_MAT 0)))
+    (VAO_bind_and_draw_arrays YBOT_SONOGRAM_VAO GL_POINTS 0 (i64toi32 (* 5 YBOT_SONOGRAM_COUNT)))
+    void))
+
+
+(bind-func refresh_screen:[void]*
+  (lambda ()
+    (ysg_draw_frame)
+    (glfwPollEvents)
+    (glfwSwapBuffers window)))
+
+;(generate_rectangle)
+;(refresh_screen)
+
+(bind-func test
+  (lambda (fname:i8* n:i64)
+    (let* ((afr:YbotAudioFileReader_t (YbotAudioFileReader_c fname n))
+           (buffer:SAMPLE* (halloc n))
+           (frames:i64 (afr.frames:i64)) (frame:i64 0))
+      (printf "Read in %lld frames\n" frames)
+      (dotimes (frame n)
+        (pset! buffer frame (afr frame 0))
+        (printf "%0.8f\n" (afr frame 0)))
+      (printf "Copied %lld frames\n" n)
+      buffer)))
+
+
+
+
+(bind-func zap:[void,!a]*
+  (lambda (ptr)
+    (if (not (null? ptr)) (begin (free ptr) (set! ptr (convert 0))))
+    void))
+
+
+(bind-func ysg_audio_file:[SAMPLE*,i8*]* 1000000
+  (let ((buffer:SAMPLE* (convert 0))
+        (frames:i64 0) (a:i64 0) (n:i64 4096) (b:i64 (+ a n))
+        (reader:YbotAudioFileReader_t (convert 0))
+        (zone_cleanup (begin (zap buffer) (YbotAudioFileReader_d reader) (set! reader (convert 0)))))
+    (lambda (filename:i8*)
+      (zap buffer)
+      (if (not (null? reader)) (begin (YbotAudioFileReader_d reader) (set! reader (convert 0))))
+      (set! reader (YbotAudioFileReader_c filename n))
+      (set! frames (reader.frames:i64))
+        ;(generate_sonogram YBOT_SONOGRAM_AUDIO_DATA 0 2048 512 256)
+        ;(refresh_screen)
+      buffer)))
+
+
+(bind-func view_audio_data
+  (lambda (a:i64 n:i64 c:i64 w:i64)
+    (let* ((reader:YbotAudioFileReader_t (ysg_audio_file.reader))
+          (buffer:SAMPLE* (ysg_audio_file.buffer))
+          (frames:i64 (ysg_audio_file.frames))
+          (tmp:SAMPLE* (halloc n)) (frame:i64 0))
+        (set! buffer tmp)
+        (dotimes (frame n)
+          (printf "%0.8f\t" (reader frame c))
+          (pset! buffer frame (reader frame c)))
+        (println)
+        (set! YBOT_SONOGRAM_AUDIO_DATA buffer)
+        (generate_sonogram YBOT_SONOGRAM_AUDIO_DATA a (+ a n) w (/ w 2))
+        (refresh_screen))))
+    
+(bind-func examine_audio_data
+  (lambda (a:i64 n:i64)
+    (let ((i:i64 0))
+      (dotimes (i n)
+        (printf "%0.8f\n" (pref YBOT_SONOGRAM_AUDIO_DATA (+ a i))))
+      void)))
+
+(examine_audio_data 0 128)
+    
+
+
+(ysg_audio_file "/Users/ybot/Documents/Ecoacoustics/InvisiblePlaces2017/DinnerPreparationSnippet1_Binaural.wav")
+(test "/Users/ybot/Documents/Ecoacoustics/InvisiblePlaces2017/DinnerPreparationSnippet1_Binaural.wav" 128)
+
+($ (view_audio_data 0 256 0 32))
+
+(define *xtmlib-ybot_sonogram-loaded* #t)
