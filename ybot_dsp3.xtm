@@ -1,3 +1,6 @@
+;; All signal generators should have a freq, amp and phase
+;; (even if they don't do anything)
+
 (bind-alias SignalGenerator [SAMPLE]*)
 
 (bind-func constant_c:[SignalGenerator,SAMPLE]*
@@ -5,9 +8,9 @@
     (lambda ()
       value)))
 
-
 ;(bind-macro (chain . args)
 ;            `(,(car args) (chain ,@(cdr args))))
+
 
 
 (bind-func phasor_c:[SignalGenerator]*
@@ -15,7 +18,7 @@
     (let ((freq:SignalGenerator (constant_c (convert 440.0)))
           (phase:SAMPLE (convert 0.0)))
       (lambda ()
-        (set! phase (+ phase (/ (freq) SAMPLERATE)))
+        (set! phase (modulo (+ phase (/ (freq) SAMPLERATE)) 1.0))
         phase))))
 
 
@@ -24,7 +27,7 @@
     (let ((f:SignalGenerator (constant_c freq))
           (phase:SAMPLE (convert 0.0)))
       (lambda ()
-        (set! phase (+ phase (/ (f) SAMPLERATE)))
+        (set! phase (modulo (+ phase (/ (f) SAMPLERATE)) 1.0))
         phase))))
 
 
@@ -32,8 +35,7 @@
   (lambda (freq)
     (let ((phase:SAMPLE (convert 0.0)))
       (lambda ()
-        (set! phase (+ phase (/ (freq) SAMPLERATE)))
-        (if (>= phase (convert 1.0)) (set! phase (- phase (convert 1.0))))
+        (set! phase (modulo (+ phase (/ (freq) SAMPLERATE)) 1.0))
         phase))))
 
 

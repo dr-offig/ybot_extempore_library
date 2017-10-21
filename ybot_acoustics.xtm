@@ -86,7 +86,7 @@
     void))
 
 (initialise_n_shaders 7)
-($ (run_oscilloscope #f))
+;($ (run_oscilloscope #f))
 
 (bind-func draw_frame:[void]*
   (let ((timeloc (glGetUniformLocation mp_prog "ct"))

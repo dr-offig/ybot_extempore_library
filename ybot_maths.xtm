@@ -44,7 +44,7 @@
 
 (bind-func mod_inc:[!a,!a,!a]*
   (lambda (n base)
-    (mod (+ n 1) base)))
+    (mod (+ n (convert 1)) base)))
 
 (bind-func dist_f:[float,float,float]*
   (lambda (x:float y:float)
@@ -188,7 +188,9 @@
         (/ (exp (* (dtof -0.5) (pow (/ (- x mu) sigma) (dtof 2.0)))) (* sigma (sqrt STWOPI))))))
 
 
+
+
 ;;;;;;;;;;;;;;;; Golden mean ;;;;;;;;;;;;;
-(bind-val PHI double (/ (+ 1 (sqrt 5)) 2))
+(bind-val PHI double (/ (+ 1.0 (sqrt 5.0)) 2.0))
 (bind-val FHI float (dtof PHI))
 (set! *xtmlib-ybot_maths-loaded* #t)

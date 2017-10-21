@@ -47,7 +47,7 @@
 
 ($ (set! FRAMERATE 60.:float))
 ($ (set! FRAMEDELTA (* SAMPLERATE (/ 1.:float FRAMERATE))))
-
+ 
 
 ;;;; Oscilloscope stuff ;;;;
 ;; (bind-func scope2pixelY:[float,float]*
