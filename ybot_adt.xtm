@@ -30,6 +30,7 @@
             (car hash)
             (hash_find (cdr hash) key cmp)))))
 
+
 (bind-func hash_get:[!v,List{Pair{!w,!v}*}*,!w,[bool,!w,!w]*]*
   (lambda (hash key cmp)
     (if (null? hash)
@@ -47,8 +48,6 @@
     value))
 
 
-
-
 (bind-func hash_set:[!v,List{Pair{!w,!v}*}*,!w,!v,[bool,!w,!w]*]*
   "set (or overwrite) value for key in dict (returns the old value)"
   (lambda (hash key value cmp)
@@ -63,6 +62,15 @@
                        (convert null))
                 (hash_set (cdr hash) key value cmp))))))
 
+
+;; (bind-func emptyList:[List{!a}*,!a]*
+;;   (lambda (x)
+;;     (List)))
+
+;; (bind-func test:[List{Variant*}*]*
+;;   (lambda ()
+;;     (let ((output:List{Variant}* (emptyList (convert 0 Variant*))))
+;;       output)))
 
 
 ;; ;;;;;;;;;; FIFO ;;;;;;;;;;;

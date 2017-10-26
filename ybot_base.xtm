@@ -53,7 +53,6 @@
       (loop 0 0))))
 
 
-
 (bind-func print_byte:[void,i64]*
   (lambda (d)
     (let* ((bits:|8,bool|* (alloc)))
@@ -67,7 +66,19 @@
       (printf "\n")
       void)))
 
-              
+
+(bind-func print_data:[void,i8*,i64]*
+  (lambda (data sz)
+    (doloop (i sz)
+      (cond
+       ((= (pref data i) 0:i8)
+        (printf "_"))
+       (else
+        (printf "%c" (pref data i)))))
+    (printf "\n")
+    void))
+
+
 ;; For colourful log printing
 (bind-func colour_pencil:[void,i8*]*
   (lambda (name)
@@ -146,6 +157,135 @@
                        (loop (cdr input) (cat (car input) (cat delim output))))))))
         (loop (cdr stl) (car stl)))))))
 
+
+;; Extra string functions
+(bind-func cstring:[i8*,i8]*
+  (lambda (c)
+    (let ((p:i8* (zalloc 2)))
+      (pset! p 0 c)
+      (pset! p 1 0)
+      p)))
+
+(bind-func to_lower:[i8,i8]*
+  (lambda (c)
+    (if (and (< (i64toi8 64) c) (< c (i64toi8 91)))
+        (+ c (i64toi8 32))
+        c)))
+
+(bind-func to_upper:[i8,i8]*
+  (lambda (c)
+    (if (and (< (i64toi8 96) c) (< c (i64toi8 123)))
+        (- c (i64toi8 32))
+        c)))
+
+
+(bind-func lower:[String*,i8*]*
+  (lambda (cstr)
+    (let* ((i:i64 0) (n:i64 (strlen cstr))
+           (buffer:i8* (zalloc (+ n 1))))
+      (dotimes (i n)
+        (pset! buffer i (to_lower (pref cstr i))))
+      (pset! buffer n 0)
+      (String buffer))))
+        
+
+(bind-func lower:[String*,String*]*
+  (lambda (str:String*)
+    (let ((cstr:i8* (cstring str)))
+    (lower:[String*,i8*]* cstr))))
+    
+
+(bind-func upper:[String*,i8*]*
+  (lambda (cstr)
+    (let* ((i:i64 0) (n:i64 (strlen cstr))
+           (buffer:i8* (zalloc (+ n 1))))
+      (dotimes (i n)
+        (pset! buffer i (to_upper (pref cstr i))))
+      (pset! buffer n 0)
+      (String buffer))))
+
+
+(bind-func upper:[String*,String*]*
+  (lambda (str:String*)
+    (let ((cstr:i8* (cstring str)))
+    (upper:[String*,i8*]* cstr))))
+
+
+(bind-func print_hex:[void,String*]*
+  (lambda (str)
+    (let ((i:i64 0)
+          (n:i64 (length str))
+          (data:i8* (tref str 1)))
+      (dotimes (i (- n 1))
+        (printf "%02X " (pref data i)))
+      (printf "%02X" (pref data (- n 1)))
+      void)))
+
+
+(bind-func print_sanitised:[void,String*]*
+  (lambda (str:String*)
+    (cond
+     ((non-null str)
+      (let ((i:i64 0) (n:i64 (length str))
+             (data:i8* (tref str 1)))
+         (dotimes (i n)
+           (let ((c:i8 (pref data i)))
+             (cond
+              ((< 31:i8 c)
+               (printf "%c" c))
+              (else 
+               (printf "[%02X]" c)))))
+         void))
+     (else void))))
+
+
+;; override base.xtm string comparison, so that it doesn't crash on null
+(bind-func equal
+  (lambda (s1:String* s2:String*)
+    (if (or (null? s1) (null? s2))
+        0:i1
+        (if (= (strcmp (tref s1 1) (tref s2 1)) 0)
+            1:i1 0:i1))))
+
+
+(bind-func safe_cstr:[i8*,String*]*
+  (lambda (str:String*)
+    (cond
+     ((non-null str)
+      (cstring str))
+     (else
+      (zalloc)))))
+        
+
+;; String parsing utilities
+(bind-func first_word:[String*,String*]*
+  (lambda (str)
+    (let ((words (regex_split "[^a-zA-Z0-9]+" str)))
+      (if (non-empty words)
+          (car words)
+          null))))
+
+
+(bind-func last_word:[String*,String*]*
+  (lambda (str)
+    (let ((words (regex_split "[^a-zA-Z0-9]+" str)))
+      (if (non-empty words)
+          (car (reverse words))
+          null))))
+
+;; List style string functions
+(bind-func top:[i8,String*]*
+  (lambda (str)
+    (cond
+     ((< 0 (length str)) (pref (tref str 1) 0))
+     (else 0:i8))))
+
+
+(bind-func tail:[String*,String*]*
+  (lambda (str)
+    (cond
+     ((< 0 (length str)) (substring str 1 (length str)))
+     (else null))))
 
 
 (define *xtmlib-ybot_base-loaded* #t)
