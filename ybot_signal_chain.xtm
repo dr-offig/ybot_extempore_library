@@ -1,0 +1,9 @@
+(sys:load-preload-check 'ybot_signal_chain)
+(define *xtmlib-ybot_signal_chain-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/core/math_ext.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/core/math_ext.xtm"))
+
+(set! *xtmlib-ybot_signal_chain-loaded* #t)

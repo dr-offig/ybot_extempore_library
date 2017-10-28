@@ -6,15 +6,6 @@
 (impc:aot:insert-forms
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
 
-;(define osc-output-address (cons "localhost" 7020))
-
-
-(define (osc-receive timestamp address . args)
-    (println 'port 7020 address '-> args))
-
-(io:osc:start-server 7020 "osc-receive")
-
-
 
 ;; OSCAddress is just the address string part i.e. /analogue/accX
 (bind-alias OSCAddress String)
@@ -36,7 +27,7 @@
 
   
 ;; OSCTimeTag
-(bind-alias OSCTimeTag i8)
+(bind-alias OSCTimeTag i64)
 
 ;; OSCBundleElement:
 ;; size (in bytes) of contents,
@@ -45,41 +36,35 @@
 (bind-type OSCBundleElement <i32,OSCMessage*,i8*>)
 (bind-type OSCBundle <OSCTimeTag,List{OSCBundleElement*}*>)
 
-(bind-func pad32:[i64,i8*,i64]*
-  (lambda (ptr sz)
-    (let ((r:i64 (modulo sz 4))
-          (p:i8* (pref-ptr ptr (+ r sz))))
-      (memset p 0 r)
-      r)))
-
-(bind-func chugChugChug:[i64,i8*,i8*,i64]*
-  (lambda (tapehead token sz)
-    (memcpy tapehead token sz)
-    (let ((nsz (pad32 tapehead sz)))
-      (set! tapehead (pref-ptr tapehead nsz))
-      nsz)))
 
 (bind-func send:[void,OSCHost*,OSCMessage*]*
   (let* ((data:i8* (alloc 8192)) (sz:i64 0) (tapehead:i8* data)
          (pad32:[i64,i8*,i64]*
-          (lambda (ptr sz)
-            (let ((r:i64 (modulo sz 4))
-                  (p:i8* (pref-ptr ptr (+ r sz))))
-              (memset p 0 r)
-              r)))
-         (chugChugChug:[void,i8*,i64]*
+          (lambda (ptr sizeIn)
+            (let ((r:i64 (modulo sizeIn 4))
+                  (t:i64 (modulo (- 4 r) 4))
+                  (p:i8* (pref-ptr ptr sizeIn)))
+              (memset p 0 t)
+              (+ sizeIn t))))
+         (processPadded:[void,i8*,i64]*
           (lambda (token sizeIn)
             (memcpy tapehead token sizeIn)
             (let ((paddedSize (pad32 tapehead sizeIn)))
               (set! tapehead (pref-ptr tapehead paddedSize))
               (set! sz (+ sz paddedSize))
-              void))))
+              void)))
+         (processUnpadded:[void,i8*,i64]*
+          (lambda (token sizeIn)
+            (memcpy tapehead token sizeIn)
+            (set! tapehead (pref-ptr tapehead sizeIn))
+            (set! sz (+ sz sizeIn))
+            void)))
     (lambda (host msg)
-      (memset data 0 8192) (set! tapehead data)
+      (memset data 0 8192) (set! tapehead data) (set! sz 0)
       (let ((address_length:i64 (+ 1 (length (tref msg 0))))
             (typestring_length:i64 (+ 1 (length (tref msg 1)))))
-        (chugChugChug (cstring (tref msg 0)) address_length)
-        (chugChugChug (cstring (tref msg 1)) typestring_length)
+        (processPadded (cstring (tref msg 0)) address_length)
+        (processPadded (cstring (tref msg 1)) typestring_length)
         (let* ((hostname:i8* (cstring (tref host 0)))
                (port:i64 (tref host 1))
                (loop:[void,List{Variant*}*]*
@@ -88,12 +73,24 @@
                    ((non-empty tmp)
                     (let* ((var:Variant* (car tmp))
                            (p:i8* (tref var 0))
-                           (s:i64 (tref var 1)))
-                      (chugChugChug p s)
+                           (s:i64 (tref var 1))
+                           (type:i8* (tref var 2)))
+                      (cond
+                       ((= 0:i32 (strcmp type "i32"))
+                        (let ((q:i32* (salloc)))
+                          (pset! q 0 (swap32i (pref (cast p i32*) 0)))
+                          (processPadded (cast q i8*) s)))
+                       ((= 0:i32 (strcmp type "float"))
+                        (let ((q:i32* (salloc)))
+                          (pset! q 0 (swap32f (pref (cast p float*) 0)))
+                          (processPadded (cast q i8*) s)))
+                       (else
+                        (processPadded p s)))
                       (loop (cdr tmp))))
-                    (else void)))))
-        (loop (tref msg 2))
-        (llvm_send_udp hostname (i64toi32 port) data (i64toi32 sz)))))))
+                   (else void)))))
+          (loop (tref msg 2))
+          ;(print_data data sz)
+          (llvm_send_udp hostname (i64toi32 port) data (i64toi32 sz)))))))
 
 
 (bind-func osc_typestring:[OSCTypeString*,List{Variant*}*]*
@@ -104,6 +101,7 @@
         (osc_type_blob:OSCTypeString* (String "blob")))
     (lambda (args:List{Variant*}*)
       (memset buffer 0 8192)
+      (pset! buffer 0 44:i8)
       (let ((loop:[void,List{Variant*}*,i64]*
              (lambda (tmp cc)
                (cond
@@ -123,7 +121,7 @@
                    (loop (cdr tmp) (+ cc 1))))
                 (else
                  void)))))
-        (loop args 0)
+        (loop args 1)
         (String buffer)))))
                     
 
@@ -133,73 +131,68 @@
            (a:OSCAddress* (String address))
            (t:OSCTypeString* (osc_typestring args))
            (m:OSCMessage* (OSCMessage a t args)))
-      (printf "Typestring: %s\n" (cstring t))
-      (println args)
       (send h m))))
 
 
+(bind-func osc_parse_args:[List{Variant*}*,String*,i32*]*
+  (lambda (typestring:String* data:i32*)
+    (cond
+     ((= (top typestring) 44:i8)
+      (let ((loop:[List{Variant*}*,String*,i32*,List{Variant*}*]*
+             (lambda (str ptr lst)
+               (let ((c:i8 (top str)))
+                 (cond
+                  ((= 0:i8 c) lst)
+                  ((= 105:i8 c) (loop (tail str) (pref-ptr ptr 1) (cons (Variant (unswap32i (pref ptr 0))) lst)))
+                  ((= 102:i8 c) (loop (tail str) (pref-ptr ptr 1) (cons (Variant (unswap32f (pref ptr 0))) lst)))
+                  ((= 115:i8 c)
+                   (let ((strArg (String (cast ptr i8*))))
+                     (loop (tail str) (pref-ptr ptr (+ 1 (length strArg))) (cons (Variant strArg) lst))))
+                  (else (printf "Unexpected type tag %c\n" c) lst))))))
+        (reverse (loop (tail typestring) data null))))
+     (else (printf "Badly formed typestring: %s\tTypestrings should start with a comma\n" (cstring typestring))
+           null))))
 
-($ (osc_send "localhost" 7020 "/snibble/X" (list (Variant 33:i32) (Variant 22.2:float) (Variant (String "snobble")))))
+
+(bind-func osc_parse_address:[List{String*}*,i8*]*
+  (lambda (address:i8*)
+    (let ((tokens (regex_split "/" (String address))))
+      (cond
+       ((non-empty tokens)
+        (cond
+         ((< 1 (length tokens)) (cdr tokens))
+         (else tokens)))
+       (else null)))))
+
+
+(bind-alias OSC_DELEGATE [i32,List{String*}*,List{Variant*}*]*)
+(bind-func osc_receive:[i32,i8*,i8*,i8*]*
+  (let ((delegate:[i32,List{String*}*,List{Variant*}*]*
+         (lambda (address_tokens args)
+           (println address_tokens args)
+           0:i32)))
+    (lambda (address:i8* types:i8* args:i8*)
+      (cond
+       ((or (null? address) (null? types) (null? args))
+        (println "Invalid OSC message received")
+        -1)
+       (else
+        (printf "%s\t%s\t%p\n" address types args)
+        (delegate
+         (osc_parse_address address)
+         (osc_parse_args (String types) (bitcast args i32*))))))))
+
+
+
+;;;;;;;;;;;;;;; Example Usage ;;;;;;;;;;;;;;;
+;; (io:osc:start-server 8000
+;;                     (impc:ti:get-mono-name osc_receive)
+;;                     (llvm:get-function-pointer
+;;                      (impc:ti:get-native-name osc_receive)))
+
+
+;($ (osc_send "localhost" 7020 "/snibble/X/gain" (list (Variant 99:i32) (Variant 100.1:float) (Variant (String "snooble")))))
     
-
-
-;; ;; NOTE osc-strings must be padded to 32bit multiples
-;; (bind-func native_osc_send
-;;   (lambda (address a:float b:i32)
-;;     (let ((types ",fi")
-;; 	  (mod (modulo (+ (strlen address) 1) 4))
-;; 	  (addressl (+ (+ (strlen address) 1)
-;; 		       (if (= 0 mod) 0 (- 4 mod))))
-;; 	  (typesl 4)		     
-;; 	  (length (+ addressl typesl 4 4))
-;; 	  (data (malloc length))
-;; 	  (args (bitcast (pref-ptr data (+ addressl typesl)) i32*)))
-;;       (printf "addy length %d:%d:%d\n" (strlen address) addressl (- 4 (modulo (+ (strlen address) 1) 4)))
-;;       (strcpy (pref-ptr data 0) address)
-;;       (strcpy (pref-ptr data addressl) types)
-;;       (pset! args 0 (swap32f a))
-;;       (pset! args 1 (swap32i b))
-;;       (llvm_send_udp "localhost" 7020 data (i64toi32 length)))))
-
-
-;; (bind-func native_osc_send
-;;   (lambda (address a:float b:float c:float)
-;;     (let ((types ",fff")
-;;           (mod (modulo (+ (strlen address) 1) 4))
-;;           (addressl (+ (+ (strlen address) 1) (if (= 0 mod) 0 (- 4 mod))))
-;;           (typesl 5)		     
-;;           (length (+ addressl typesl 4 4))
-;;           (data (malloc length))
-;;           (args (bitcast (pref-ptr data (+ addressl typesl)) i32*)))
-;;       (printf "addy length %d:%d:%d\n" (strlen address) addressl (- 4 (modulo (+ (strlen address) 1) 4)))
-;;       (strcpy (pref-ptr data 0) address)
-;;       (strcpy (pref-ptr data addressl) types)
-;;       (pset! args 0 (swap32f a))
-;;       (pset! args 1 (swap32f b))
-;;       (pset! args 2 (swap32f c))
-;;       (llvm_send_udp "localhost" 7020 data (i64toi32 length)))))
-
-
-;; (bind-func native_osc_send
-;;   (lambda (address a:float b:float c:float d:float)
-;;     (let ((types ",ffff")
-;;           (mod (modulo (+ (strlen address) 1) 4))
-;;           (addressl (+ (+ (strlen address) 1) (if (= 0 mod) 0 (- 4 mod))))
-;;           (typesl 6)		     
-;;           (length (+ addressl typesl 4 4))
-;;           (data (malloc length))
-;;           (args (bitcast (pref-ptr data (+ addressl typesl)) i32*)))
-;;       (printf "addy length %d:%d:%d\n" (strlen address) addressl (- 4 (modulo (+ (strlen address) 1) 4)))
-;;       (strcpy (pref-ptr data 0) address)
-;;       (strcpy (pref-ptr data addressl) types)
-;;       (pset! args 0 (swap32f a))
-;;       (pset! args 1 (swap32f b))
-;;       (pset! args 2 (swap32f c))
-;;       (pset! args 3 (swap32f d))
-;;       (llvm_send_udp "localhost" 7020 data (i64toi32 length)))))
-
-
-
 
 (set! *xtmlib-ybot_osc-loaded* #t)
 
