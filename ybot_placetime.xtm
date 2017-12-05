@@ -1,34 +1,86 @@
-;; Include guard
-(if (and (defined? '*xtmlib-ybot-placetime-loaded*) *xtmlib-ybot-placetime-loaded*)
-    (sys:load-escape "ybot_placetime library already loaded"))
-(define *xtmlib-ybot-placetime-loaded* #f)
+(sys:load-preload-check 'ybot_placetime)
+(define *xtmlib-ybot_placetime-loaded* #f)
 
-(if (not (defined? '*ybot-lib-dir*))
-    (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-(sys:load (string-append *ybot-lib-dir* "/ybot_placetime.xtm"))
-
-;; Dependencies
-;(sys:load "libs/sndfile.xtm")
-;(sys:load "libs/core/xthread.xtm")
-
-
-(call-as-xtlang
- (clock_clock))
+(impc:aot:suppress-aot-do
+ (sys:load "libs/contrib/ybot/ybot_base.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/contrib/ybot/ybot_base.xtm" 'quiet))
 
 
 ;;; Calendar-ness
 
 ;; year, month, day.
-(bind-type YbotDate <i64,i64,i64>)
+(bind-val January enum 1)
+(bind-val February enum 2)
+(bind-val March enum 3)
+(bind-val April enum 4)
+(bind-val May enum 5)
+(bind-val June enum 6)
+(bind-val July enum 7)
+(bind-val August enum 8)
+(bind-val September enum 9)
+(bind-val October enum 10)
+(bind-val November enum 11)
+(bind-val December enum 12)
 
-(bind-func YbotDate_print:[void,YbotDate*]*
+(bind-type YbotDate <i64,i64,i64> (constructor? . #f) (printer? . #f))
+(bind-func YbotDate:[YbotDate*,i64,i64,i64]*
+  (lambda (year month day)
+    (let ((output:YbotDate* (alloc))
+          (d:i64 (- day 1)))
+      (tfill! output year month day)
+      (cond
+       ((or
+         (= (i64toi32 month) April)
+         (= (i64toi32 month) June)
+         (= (i64toi32 month) September)
+         (= (i64toi32 month) November))
+        (if (<= 30 d)
+            (begin
+              (tset! output 2 (+ (modulo d 30) 1))
+              (tset! output 1 (+ month (/ d 30)))))
+        void)
+       ((= (i64toi32 month) February)
+        (cond
+         ((and (= (modulo year 4) 0)  (or (= (modulo year 400) 0) (not (= (modulo year 100) 0))))
+          (if (<= 29 d)
+            (begin
+              (tset! output 2 (+ (modulo d 29) 1))
+              (tset! output 1 (+ month (/ d 29)))))
+          void)
+         (else
+          (if (<= 28 d)
+            (begin
+              (tset! output 2 (+ (modulo d 28) 1))
+              (tset! output 1 (+ month (/ d 28)))))
+          void)))
+       (else void))
+      output)))
+
+(bind-func year:[i64,YbotDate*]* (lambda (date) (tref date 0)))
+(bind-func year:[i64,YbotDate*,i64]* (lambda (date value) (tset! date 0 value)))
+(bind-func month:[i64,YbotDate*]* (lambda (date) (tref date 1)))
+(bind-func month:[i64,YbotDate*,i64]* (lambda (date value) (tset! date 1 value)))
+(bind-func day:[i64,YbotDate*]* (lambda (date) (tref date 2)))
+(bind-func day:[i64,YbotDate*,i64]* (lambda (date value) (tset! date 2 value)))
+
+(bind-func toString:[String*,YbotDate*]*
   (lambda (date)
-    (printf "%02lld / %02lld / %04lld" (tref date 2) (tref date 1) (tref date 0))
+    (let ((str:i8* (alloc 64)))
+      (sprintf str "%02lld / %02lld / %04lld" (tref date 2) (tref date 1) (tref date 0))
+      (String str))))
+
+
+
+(bind-func print:[void,YbotDate*]*
+  (lambda (date)
+    (print:[void,String*]* (toString date))
     void))
 
-(bind-poly print YbotDate_print)
-(call-as-xtlang (print (YbotDate 1973 11 6)))
 
+;; The following algorithms take March 1st of the year 0AD as the start of time (day 0)
+;; This is convenient because it makes February come at the end of each 'year' which
+;; simplifies the calculation for dealing with leap days.
 (bind-func YbotDate2DayNumber:[i64,YbotDate*]*
   (lambda (date)
     (let* ((m:i64 (% (+ (tref date 1) 9) 12))
@@ -41,24 +93,61 @@
   (lambda (n)
     (let* ((y:i64 (/ (+ (* 10000 n) 14780) 3652425))
            (ddd:i64 (- n (+ (* y 365) (/ y 4) (* -1 (/ y 100)) (/ y 400)))))
-      (if (< 0 ddd) (begin (set! y (- y 1)) (set! ddd (- n (+ (* y 365) (/ y 4) (* -1 (/ y 100)) (/ y 400))))))
+      (if (< ddd 0) (begin (set! y (- y 1)) (set! ddd (- n (+ (* y 365) (/ y 4) (* -1 (/ y 100)) (/ y 400))))))
       (let* ((mi:i64 (/ (+ 52 (* 100 ddd)) 3060))
              (yy:i64 (+ y (/ (+ mi 2) 12)))
              (mm (+ (% (+ mi 2) 12) 1))
              (dd (+ ddd 1 (* -1 (/ (+ (* mi 306) 5) 10)))))
         (YbotDate yy mm dd)))))
-      
-(call-as-xtlang (print (YbotDayNumber2Date 1)))
 
-(call-as-xtlang
- (print (YbotDayNumber2Date (YbotDate2DayNumber (YbotDate 1973 11 34)))))
 
-(call-as-xtlang
- (print (YbotDayNumber2Date 70000)))
+($ (println (YbotDate2DayNumber (YbotDate 2017 11 15))))
 
-(call-as-xtlang
- (/ (- (YbotDate2DayNumber (YbotDate 1973 11 6))
-       (YbotDate2DayNumber (YbotDate 2015 11 6)))
-    365))
 
-(set! *xtmlib-ybot-placetime-loaded* #t)
+(bind-func Epoch2Day
+  (let ((SECONDS_PER_DAY:i64 (* 60 60 24))
+        (OFFSET:i64 (YbotDate2DayNumber (YbotDate 1970 1 1))))
+  (lambda (t:double)
+    (+ OFFSET (/ (dtoi64 t) SECONDS_PER_DAY)))))
+
+
+(bind-func Date:[YbotDate*]*
+  (lambda ()
+    (YbotDayNumber2Date (Epoch2Day (clock_clock)))))
+
+
+(bind-func UTC:[i64]*
+  (let ((SECONDS_PER_DAY:i64 (* 60 60 24)))
+    (lambda ()
+      (modulo (dtoi64 (clock_clock)) SECONDS_PER_DAY))))
+    
+
+(bind-func LocalTime:[i64,i64]*
+  (lambda (timezone:i64)
+    (+ (UTC) (* timezone 3600)))) 
+
+(bind-func ClockReadout:[String*,i64]*
+  (let* ((HOUR_PER_DAY:i64 24)
+         (MIN_PER_HOUR:i64 60)
+         (SEC_PER_MIN:i64 60)
+         (MIN_PER_DAY (* MIN_PER_HOUR HOUR_PER_DAY))
+         (SEC_PER_HOUR (* MIN_PER_HOUR SEC_PER_MIN))
+         (SEC_PER_DAY (* SEC_PER_MIN MIN_PER_HOUR HOUR_PER_DAY)))
+  (lambda (t:i64)
+    (let* ((str:i8* (alloc 16))
+           (second:i64 (modulo t SEC_PER_MIN))
+           (rm:i64 (/ t SEC_PER_MIN))
+           (minute:i64 (modulo rm MIN_PER_HOUR))
+           (hour:i64 (/ rm (MIN_PER_HOUR))))
+      (sprintf str "%02lld:%02lld:%02lld" hour minute second)
+      (Str str)))))
+
+($ (println (ClockReadout (LocalTime 11))))
+
+
+;; How old am I?
+;; ($ (/ (- (YbotDate2DayNumber (Date))
+;;          (YbotDate2DayNumber (YbotDate 1973 11 6)))
+;;     365))
+
+(set! *xtmlib-ybot_placetime-loaded* #t)
