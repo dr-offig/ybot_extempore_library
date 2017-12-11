@@ -1,3 +1,4 @@
+(sys:load "libs/aot-cache/ybot_osc.xtm" 'quiet)
 (sys:load-preload-check 'ybot_osc)
 (define *xtmlib-ybot_osc-loaded* #f)
 
@@ -5,6 +6,8 @@
  (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
 (impc:aot:insert-forms
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
+
+(impc:aot:insert-header "xtmybot_osc")
 
 
 ;; OSCAddress is just the address string part i.e. /analogue/accX
@@ -156,13 +159,16 @@
 
 (bind-func osc_parse_address:[List{String*}*,i8*]*
   (lambda (address:i8*)
-    (let ((tokens (regex_split "/" (String address))))
-      (cond
-       ((non-empty tokens)
+    (cond
+     ((non-null address)
+      (let ((tokens (regex_split "/" (String address))))
         (cond
-         ((< 1 (length tokens)) (cdr tokens))
-         (else tokens)))
-       (else null)))))
+         ((non-empty tokens)
+          (cond
+           ((< 1 (length tokens)) (cdr tokens))
+           (else tokens)))
+         (else null))))
+     (else null))))
 
 
 (bind-alias OSC_DELEGATE [i32,List{String*}*,List{Variant*}*]*)
@@ -175,13 +181,14 @@
       (cond
        ((or (null? address) (null? types) (null? args))
         (println "Invalid OSC message received")
-        -1)
+        -1:i32)
        (else
-        (printf "%s\t%s\t%p\n" address types args)
+        ;(printf "%s\t%s\t%p\n" address types args)
         (delegate
          (osc_parse_address address)
-         (osc_parse_args (String types) (bitcast args i32*))))))))
-
+         (osc_parse_args (String types) (bitcast args i32*)))
+        0:i32)
+        ))))
 
 
 ;;;;;;;;;;;;;;; Example Usage ;;;;;;;;;;;;;;;
@@ -194,8 +201,5 @@
 ;($ (osc_send "localhost" 7020 "/snibble/X/gain" (list (Variant 99:i32) (Variant 100.1:float) (Variant (String "snooble")))))
     
 
-(set! *xtmlib-ybot_osc-loaded* #t)
-
-
-
-
+(define *xtmlib-ybot_osc-loaded* #t)
+(impc:aot:insert-footer "xtmybot_osc")
