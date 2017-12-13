@@ -84,7 +84,7 @@
         (printf "_"))
        (else
         (printf "%c" (pref data i)))))
-    (printf "\n")
+    ;(printf "\n")
     void))
 
 
@@ -229,6 +229,18 @@
         (printf "%02X " (pref data i)))
       (printf "%02X" (pref data (- n 1)))
       void)))
+
+(bind-func print_hex:[void,i8*,i64]*
+  (lambda (data n)
+    (let ((i:i64 0))
+      (dotimes (i (- n 1))
+        (cond
+         ((= 3 (modulo i 4))
+          (printf "%02X " (pref data i)))
+         (else (printf "%02X." (pref data i)))))
+      (printf "%02X" (pref data (- n 1)))
+      void)))
+
 
 
 (bind-func print_sanitised:[void,String*]*

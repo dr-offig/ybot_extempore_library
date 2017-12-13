@@ -1,13 +1,3 @@
-;; (if (and (defined? '*xtmlib-ybot-parser-html-loaded*) *xtmlib-ybot-parser-html-loaded*)
-;;     (sys:load-escape "ybot_parser_html library already loaded"))
-;; (define *xtmlib-ybot-parser-html-loaded* #f)
-
-;; (define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
-;; (if (not (defined? '*ybot-lib-dir*))
-;;     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;; (sys:load (string-append *ybot-lib-dir* "/ybot_parser.xtm"))
-
-
 (sys:load-preload-check 'ybot_parser_html)
 (define *xtmlib-ybot_parser_html-loaded* #f)
 
@@ -263,7 +253,7 @@
   (lambda (tag condition state)
     (let ((context:HTMLParseContext* (alloc)))
       (tset! context 0 tag)
-      (tset! context 1 (StringStreamBuffer_c 256))
+      (tset! context 1 (StringStreamBuffer 256))
       (tset! context 2 condition)
       (tset! context 3 state)
       context)))
@@ -304,7 +294,7 @@
   (lambda ()
     (let* ((context:HTMLParseContext* (alloc))
            (tag:HTMLTag* (HTMLTag (String "Document") null null null (String "") (binary "00000000")))
-           (buffer:StringStreamBuffer* (StringStreamBuffer_c 256))
+           (buffer:StringStreamBuffer* (StringStreamBuffer 256))
            (state HTML_DEFAULT))
       (tfill! context tag buffer html_default_cond state)
       context)))
@@ -855,5 +845,5 @@
               output))
           null))))
 
-                            
+
 (define *xtmlib-ybot_parser_html-loaded* #t)

@@ -126,23 +126,39 @@
 
 ;;;;;;;;;;;;;;;;;;;; Dynamic Buffer ;;;;;;;;;;;;;;;;;
 ;; StringStreamBuffer:  data, length, capacity
-(bind-type StringStreamBuffer <i8*,i64,i64>)
-(bind-func StringStreamBuffer_c:[StringStreamBuffer*,i64]*
+(bind-type StringStreamBuffer <i8*,i64,i64> (constructor? . #f) (printer?. #f))
+(bind-func StringStreamBuffer:[StringStreamBuffer*,i8*,i64,i64]*
+  (lambda (data lngth capacity)
+    (let ((output:StringStreamBuffer* (alloc)))
+      (tset! output 0 data)
+      (tset! output 1 lngth)
+      (tset! output 2 capacity)
+      output)))
+
+(bind-func StringStreamBuffer:[StringStreamBuffer*,i64]*
   (lambda (capacity)
-    (let ((data:i8* (zalloc (+ capacity 1))))
-      (StringStreamBuffer data 0 capacity))))
+    (let ((output:StringStreamBuffer* (alloc))
+          (data:i8* (zalloc (+ capacity 1))))
+      (tset! output 0 data)
+      (tset! output 1 0)
+      (tset! output 2 capacity)
+      output)))
+
           
-(bind-func StringStreamBuffer_c:[StringStreamBuffer*,StringStreamBuffer*,i64]*
+(bind-func StringStreamBuffer:[StringStreamBuffer*,StringStreamBuffer*,i64]*
   (lambda (buffer:StringStreamBuffer* new_capacity:i64)
-    (let* ((data:i8* (tref buffer 0))
-          (current_length:i64 (tref buffer 1))
-          (current_capacity:i64 (tref buffer 2))
-          (capacity:i64 (min current_capacity new_capacity))
-          (new_length:i64 (min current_length new_capacity))
-          (new_data:i8* (zalloc (+ new_capacity 1)))
-          (new_buffer:StringStreamBuffer* (StringStreamBuffer:[StringStreamBuffer*,i8*,i64,i64]* new_data new_length new_capacity)))
+    (let* ((new_buffer:StringStreamBuffer* (alloc))
+           (data:i8* (tref buffer 0))
+           (current_length:i64 (tref buffer 1))
+           (current_capacity:i64 (tref buffer 2))
+           (capacity:i64 (if (< current_capacity new_capacity) current_capacity new_capacity))
+           (new_length:i64 (if (< current_length new_capacity) current_length new_capacity))
+           (new_data:i8* (zalloc (+ new_capacity 1))))
       (memcpy new_data data capacity)
       (pset! new_data (+ new_length 1) (i64toi8 0))
+      (tset! new_buffer 0 new_data)
+      (tset! new_buffer 1 new_length)
+      (tset! new_buffer 2 new_capacity)
       new_buffer)))
     
 
@@ -163,7 +179,7 @@
   (lambda (cstr new_capacity)
     (let*
         ((current_length (strlen cstr))
-         (new_length (min current_length new_capacity))
+         (new_length (if (< current_length new_capacity) current_length new_capacity))
          (new_data:i8* (zalloc (+ new_capacity 1)))
          (new_buffer:StringStreamBuffer* (StringStreamBuffer new_data new_length new_capacity)))
       (memcpy new_data cstr new_length)
@@ -176,7 +192,7 @@
     (let*
         ((cstr (cstring str))
          (current_length (strlen cstr))
-         (new_length (min current_length new_capacity))
+         (new_length (if (< current_length new_capacity) current_length new_capacity))
          (new_data:i8* (zalloc (+ new_capacity 1)))
          (new_buffer:StringStreamBuffer* (StringStreamBuffer new_data new_length new_capacity)))
       (memcpy new_data cstr new_length)
@@ -212,7 +228,7 @@
         buffer)
        (else
         (let* ((new_capacity (* capacity 2))
-               (new_buffer (StringStreamBuffer_c buffer new_capacity))
+               (new_buffer (StringStreamBuffer buffer new_capacity))
                (new_data (tref new_buffer 0)))
           (pset! new_data current_length c)
           (pset! new_data (+ current_length 1) (i64toi8 0))

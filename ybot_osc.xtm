@@ -93,6 +93,7 @@
                    (else void)))))
           (loop (tref msg 2))
           ;(print_data data sz)
+          ;(print_hex data sz) (println "")
           (llvm_send_udp hostname (i64toi32 port) data (i64toi32 sz)))))))
 
 
@@ -137,6 +138,46 @@
       (send h m))))
 
 
+(bind-func strtoi64:[i64,String*]*
+  (lambda (str)
+    (let ((sz:i64 (length str)) (i:i64 0)
+          (tmp:i8* (cstring str))
+          (output:i64 0))
+      (cond
+       ((< 0 sz)
+        (dotimes (i sz)
+          (set! output (+ output (* (ftoi64 (pow 10.0 (i64tof i))) (i8toi64 (- (pref tmp (- sz (+ i 1))) 48:i8))))))
+        output)
+       (else output)))))
+
+
+(bind-func parse_ip_address:[|4,i64|*,String*]*
+  (lambda (ipstring)
+    (let* ((tokens (regex_split "\\." ipstring))
+           (output:|4,i64|* (alloc)))
+      (println tokens)
+      (cond
+       ((= (length tokens) 4)
+        (aset! output 0 (strtoi64 (car tokens)))
+        (aset! output 1 (strtoi64 (cadr tokens)))
+        (aset! output 2 (strtoi64 (caddr tokens)))
+        (aset! output 3 (strtoi64 (cadddr tokens)))
+        void)
+       (else void))
+      output)))
+
+
+;; (bind-func osc_broadcast:[void,i8*,i64,i8*,List{Variant*}*]*
+;;   (lambda (host port address args)
+;;     (let* ((i:i64 0) (hh:|4,i64|* (parse_ip_address (String host)))
+;;            (a:OSCAddress* (String address))
+;;            (t:OSCTypeString* (osc_typestring args))
+;;            (m:OSCMessage* (OSCMessage a t args)))
+;;       (dotimes (i 255)
+;;         (let ((h:OSCHost* (OSCHost (cat (format (aref hh 0)) (format (aref hh 1)) (format (aref hh 2)) (format i)) port)))
+;;           (send h m))))))
+
+
 (bind-func osc_parse_args:[List{Variant*}*,String*,i32*]*
   (lambda (typestring:String* data:i32*)
     (cond
@@ -149,8 +190,12 @@
                   ((= 105:i8 c) (loop (tail str) (pref-ptr ptr 1) (cons (Variant (unswap32i (pref ptr 0))) lst)))
                   ((= 102:i8 c) (loop (tail str) (pref-ptr ptr 1) (cons (Variant (unswap32f (pref ptr 0))) lst)))
                   ((= 115:i8 c)
-                   (let ((strArg (String (cast ptr i8*))))
-                     (loop (tail str) (pref-ptr ptr (+ 1 (length strArg))) (cons (Variant strArg) lst))))
+                   (let* ((strArg (String (cast ptr i8*)))
+                          (unpaddedBytes:i64 (+ 1 (length strArg)))
+                          (num_32bit_slots:i64 (/ unpaddedBytes 4))
+                          (r:i64 (- unpaddedBytes (* num_32bit_slots 4)))
+                          (padded_slots:i64 (if (= r 0) num_32bit_slots (+ 1 num_32bit_slots))))
+                     (loop (tail str) (pref-ptr ptr padded_slots) (cons (Variant strArg) lst))))
                   (else (printf "Unexpected type tag %c\n" c) lst))))))
         (reverse (loop (tail typestring) data null))))
      (else (printf "Badly formed typestring: %s\tTypestrings should start with a comma\n" (cstring typestring))
@@ -183,7 +228,7 @@
         (println "Invalid OSC message received")
         -1:i32)
        (else
-        ;(printf "%s\t%s\t%p\n" address types args)
+        ;;(printf "%s\t%s\t%p\n" address types args)
         (delegate
          (osc_parse_address address)
          (osc_parse_args (String types) (bitcast args i32*)))
@@ -192,14 +237,11 @@
 
 
 ;;;;;;;;;;;;;;; Example Usage ;;;;;;;;;;;;;;;
-;; (io:osc:start-server 8000
-;;                     (impc:ti:get-mono-name osc_receive)
-;;                     (llvm:get-function-pointer
-;;                      (impc:ti:get-native-name osc_receive)))
+;(io:osc:start-server 8000
+;                     (impc:ti:get-mono-name osc_receive)
+;                     (llvm:get-function-pointer
+;                      (impc:ti:get-native-name osc_receive)))
 
 
-;($ (osc_send "localhost" 7020 "/snibble/X/gain" (list (Variant 99:i32) (Variant 100.1:float) (Variant (String "snooble")))))
-    
-
-(define *xtmlib-ybot_osc-loaded* #t)
+(set! *xtmlib-ybot_osc-loaded* #t)
 (impc:aot:insert-footer "xtmybot_osc")
