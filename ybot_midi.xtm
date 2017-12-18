@@ -39,18 +39,24 @@
       (tset! output 2 #f)
       output)))
 
-;; (bind-func toString:[String*,MIDIPort*]*
-;;   (lambda (pt)
-;;     (let ((cstr:i8* (alloc 512)))
-;;       (sprintf cstr " #%ld [%s] " (port_id pt) (if (enabled pt) "x" "."))
-;;       (String cstr))))
-
 (bind-func port_id:[i32,MIDIPort*]* (lambda (port) (tref port 0)))
 (bind-func port_id:[i32,MIDIPort*,i32]* (lambda (port value) (tset! port 0 value))) 
 (bind-func stream:[i8*,MIDIPort*]* (lambda (port) (tref port 1)))
 (bind-func stream:[i8*,MIDIPort*,i8*]* (lambda (port value) (tset! port 1 value))) 
 (bind-func enabled:[i1,MIDIPort*]* (lambda (port) (tref port 2)))
 (bind-func enabled:[i1,MIDIPort*,i1]* (lambda (port value) (tset! port 2 value))) 
+
+;; (bind-func toString:[String*,MIDIPort*]*
+;;   (lambda (pt)
+;;     (let ((cstr:i8* (alloc 512)))
+;;       (sprintf cstr " #%ld [%s] " (port_id pt) (if (enabled pt) "x" "."))
+;;       (String cstr))))
+
+(bind-func print:[void,MIDIPort*]*
+  (lambda (pt)
+    (printf " #%ld [%s] " (port_id pt) (if (enabled pt) "x" "."))
+    void))
+
 
 ;; And now a MIDI device is a list of input ports and another list of output ports, and a name
 (bind-type MIDIDevice <List{MIDIPort*}*,List{MIDIPort*}*,String*> (constructor? . #f) (printer? . #f))
@@ -68,19 +74,24 @@
 (bind-func name:[String*,MIDIDevice*]* (lambda (device) (tref device 2)))
 (bind-func name:[String*,MIDIDevice*,String*]* (lambda (device value) (tset! device 2 value)))
 
+(bind-func printout:[void,MIDIDevice*]*
+  (lambda (dev)
+    (let* ((ins:List{MIDIPort*}* (input_ports dev))
+           (outs:List{MIDIPort*}* (output_ports dev))
+           (portprinter:[void,MIDIPort*]* (lambda (pt:MIDIPort*) (print pt))))
+      (println  "----- MIDI Device ---- " (name dev) "")
+      (printf "|  Inputs: ") (for-each portprinter ins)
+      (printf "\tOutputs:") (for-each portprinter outs)
+      (println "                |")
+      (println "-------------------------------------------------------")
+      (println "")
+      void)))
 
-;; (bind-func toString:[String*,MIDIDevice*]*
-;;   (lambda (dev:MIDIDevice*)
-;;     (let ((func:[String*,MIDIPort*]*
-;;            (lambda (pt:MIDIPort*) (toString pt))))
-;;       (cat
-;;        (String (name dev))
-;;        (String "\nInputs:\t")
-;;        (join " -- " (map func (input_ports dev)))
-;;        (String "\nOutputs:\t")
-;;        (join " -- " (map func (output_ports dev)))))))
-      
-               
+(bind-func print:[void,MIDIDevice*]*
+  (lambda (dev)
+    (printout dev)))
+          
+
 (bind-type MIDIDeviceManager <List{MIDIDevice*}*> (constructor? . #f) (printer? . #f))
 (bind-func MIDIDeviceManager:[MIDIDeviceManager*]*
   (lambda ()
@@ -94,11 +105,22 @@
       (tset! mdm 0 devices)
       mdm)))
 
-
 (bind-func devices:[List{MIDIDevice*}*,MIDIDeviceManager*]*
   (lambda (manager) (tref manager 0)))
 (bind-func devices:[List{MIDIDevice*}*,MIDIDeviceManager*,List{MIDIDevice*}*]*
   (lambda (manager devs) (tset! manager 0 devs)))
+
+(bind-func printout:[void,MIDIDeviceManager*]*
+  (lambda (man)
+    (let* ((devs (devices man))
+           (device_printer:[void,MIDIDevice*]*
+            (lambda (dev) (print dev))))
+      (for-each device_printer devs)
+      void)))
+
+(bind-func print:[void,MIDIDeviceManager*]*
+  (lambda (man)
+    (printout man)))
 
 
 (bind-func get_device_by_name:[MIDIDevice*,MIDIDeviceManager*,String*]*
@@ -115,6 +137,44 @@
       (loop (devices mdm)))))
 
 
+(bind-func get_input_port_by_name:[MIDIPort*,MIDIDeviceManager*,String*]*
+  (lambda (mdm str)
+    (let ((dev:MIDIDevice* (get_device_by_name mdm str)))
+      (cond
+       ((non-null dev)
+        (let ((inports (input_ports dev)))
+          (cond
+           ((non-empty inports)
+            (car inports))
+           (else null))))
+       (else null)))))
+
+
+(bind-func get_output_port_by_name:[MIDIPort*,MIDIDeviceManager*,String*]*
+  (lambda (mdm str)
+    (let ((dev:MIDIDevice* (get_device_by_name mdm str)))
+      (cond
+       ((non-null dev)
+        (let ((outports (output_ports dev)))
+          (cond
+           ((non-empty outports)
+            (car outports))
+           (else null))))
+       (else null)))))
+
+
+(bind-func get_input_stream:[PmStream*,MIDIDeviceManager*,String*]*
+  (lambda (mdm name)
+    (let ((port:MIDIPort* (get_input_port_by_name mdm name)))
+      (stream port))))
+
+
+(bind-func get_output_stream:[PmStream*,MIDIDeviceManager*,String*]*
+  (lambda (mdm name)
+    (let ((port:MIDIPort* (get_output_port_by_name mdm name)))
+      (stream port))))
+
+      
 ;; (bind-func add_all_devices:[void,MIDIDeviceManager*]*
 ;;   (lambda (mdm)
 ;;     (let ((ndev (Pm_CountDevices)))
@@ -134,62 +194,6 @@
 ;;                     (add_output_device mdm stream)
 ;;                     (println "  device id" i ":" (Pm_GetDeviceInfo i))))))))))
 
-
-
-;; MIDIDeviceManager data type. Fields are input_streams, output_streams
-;; (bind-type MIDIDeviceManager <List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*> (constructor? . #f) (printer? . #f))
-;; (bind-func MIDIDeviceManager:[MIDIDeviceManager*,List{Pair{i8*,i1}*}*,List{Pair{i8*,i1}*}*]*
-;;   (lambda (input_devices output_devices)
-;;     (let ((mdm:MIDIDeviceManager* (alloc)))
-;;       (tset! mdm 0 input_devices)
-;;       (tset! mdm 1 output_devices)
-;;       mdm)))
-
-;; (bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
-;;   (lambda (mdm)
-;;     (tref mdm 0)))
-
-;; (bind-func input_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
-;;   (lambda (mdm in_devices)
-;;     (tset! mdm 0 in_devices)))
-
-;; (bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*]*
-;;   (lambda (mdm)
-;;     (tref mdm 1)))
-
-;; (bind-func output_devices:[List{Pair{i8*,i1}*}*,MIDIDeviceManager*,List{Pair{i8*,i1}*}*]*
-;;   (lambda (mdm in_devices)
-;;     (tset! mdm 1 in_devices)))
-
-;; (bind-func add_input_device:[void,MIDIDeviceManager*,PmStream*]*
-;;   (lambda (mdm dev)
-;;     (input_devices mdm (cons (Pair (cast dev i8*) #t) (input_devices mdm)))
-;;     void))
-
-;; (bind-func add_output_device:[void,MIDIDeviceManager*,PmStream*]*
-;;   (lambda (mdm dev)
-;;     (output_devices mdm (cons (Pair (cast dev i8*) #t) (output_devices mdm)))
-;;     void))
-
-
-;; (bind-func add_all_devices:[void,MIDIDeviceManager*]*
-;;   (lambda (mdm)
-;;     (let ((ndev (Pm_CountDevices)))
-;;       (if (= ndev 0)
-;;           (println "No MIDI devices found")
-;;           (begin
-;;             (println "\n-- Adding MIDI input devices --\n")
-;;             (doloop (i ndev)
-;;               (if (= (tref (Pm_GetDeviceInfo i) 3) 1)
-;;                   (let ((stream (pm_create_input_stream i)))
-;;                     (add_input_device mdm stream)
-;;                     (println "  device id" i ":" (Pm_GetDeviceInfo i)))))
-;;             (println "\n-- Adding MIDI output devices --\n")
-;;             (doloop (i ndev)
-;;               (if (= (tref (Pm_GetDeviceInfo i) 4) 1)
-;;                   (let ((stream (pm_create_output_stream i)))
-;;                     (add_output_device mdm stream)
-;;                     (println "  device id" i ":" (Pm_GetDeviceInfo i))))))))))
 
 
 
@@ -222,28 +226,35 @@
   (lambda (stream pitch channel)
     (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 0)))
     void))
-    
+
+
+(bind-func control_change:[void,PmStream*,i64,i64,i64]*
+  (lambda (stream a b channel)
+    (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 176 channel)) (i64toi32 a) (i64toi32 b)))
+    void))
+
+
 (bind-func play_note:[void,i64,PmStream*,i64,i64,i64,i64]*
   (lambda (time stream pitch velocity channel duration)
     (callback time note_on:[void,PmStream*,i64,i64,i64]* stream pitch velocity channel)
     (callback (+ time duration) note_off:[void,PmStream*,i64,i64]* stream pitch channel)
     void))
 
-(bind-func note_on:[void,PmStream*,i64,i64,i64]*
-  (lambda (stream pitch velocity channel)
-    (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 velocity)))
-    void))
+;; (bind-func note_on:[void,PmStream*,i64,i64,i64]*
+;;   (lambda (stream pitch velocity channel)
+;;     (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 velocity)))
+;;     void))
 
-(bind-func note_off:[void,PmStream*,i64,i64]*
-  (lambda (stream pitch channel)
-    (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 0)))
-    void))
+;; (bind-func note_off:[void,PmStream*,i64,i64]*
+;;   (lambda (stream pitch channel)
+;;     (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 0)))
+;;     void))
     
-(bind-func play_note:[void,i64,PmStream*,i64,i64,i64,i64]*
-  (lambda (time stream pitch velocity channel duration)
-    (callback time note_on:[void,PmStream*,i64,i64,i64]* stream pitch velocity channel)
-    (callback (+ time duration) note_off:[void,PmStream*,i64,i64]* stream pitch channel)
-    void))
+;; (bind-func play_note:[void,i64,PmStream*,i64,i64,i64,i64]*
+;;   (lambda (time stream pitch velocity channel duration)
+;;     (callback time note_on:[void,PmStream*,i64,i64,i64]* stream pitch velocity channel)
+;;     (callback (+ time duration) note_off:[void,PmStream*,i64,i64]* stream pitch channel)
+;;     void))
 
 
 ;;(my_play_note (now) (output) 30 100 0 44100)
@@ -262,21 +273,22 @@
 
 (bind-func receive_note_on:[void,PmStream*,i32,i32,i32]*
   (lambda (stream pitch velocity channel)
-    (println "Note On  pitch: " pitch "  vel: " velocity)))
+    (println "Note On  port: " stream "  pitch: " pitch "  vel: " velocity)))
     
 
 (bind-func receive_note_off:[void,PmStream*,i32,i32,i32]*
   (lambda (stream pitch velocity channel)
-    (println "Note Off  pitch: " pitch "  vel: " velocity)))
+    (println "Note Off  port: " stream "  pitch: " pitch "  vel: " velocity)))
 
 
 (bind-func receive_cc:[void,PmStream*,i32,i32,i32]*
-  (lambda (stream controller value channel)
-    (println "CC  controller: " controller "  value: " value)))
+  (lambda (dev controller value channel)
+    (println "CC  port: " dev "  controller: " controller "  value: " value)))
+
 
 (bind-func receive_aftertouch:[void,PmStream*,i32,i32,i32]*
-  (lambda (stream pitch value channel)
-    (println "Aftertouch  pitch: " pitch "  value: " value)))
+  (lambda (dev pitch value channel)
+    (println "Aftertouch  port: " dev "  pitch: " pitch "  value: " value)))
 
 
 (bind-func midi_read_loop:[void,i64,double,MIDIDeviceManager*]*
@@ -348,59 +360,9 @@
          (else void))))))
 
 
-
-;; (bind-func midi_read_loop:[void,i64,double,PmStream*]*
-;;   (let ((input_buffer:PmEvent* (zalloc PM_MIDI_BUFFER_SIZE))
-;;         (read_count 0)
-;;         (i:i32 0))
-;;     (lambda (time:i64 delta_t:double dev:PmStream*)
-;;       (set! read_count (Pm_Read dev input_buffer PM_MIDI_BUFFER_SIZE))
-;;       ;(println "read_count:" (convert read_count i32))
-;;       (if (> read_count 0)
-;;           (dotimes (i read_count)
-;;             (cond
-;;              ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_NOTE_ON)
-;;               (receive_note_on
-;;                dev
-;;                (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
-;;                ))
-;;              ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_NOTE_OFF)
-;;               (receive_note_off
-;;                dev
-;;                (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
-;;                ))
-;;              ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_CC)
-;;               (receive_cc
-;;                dev
-;;                (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
-;;                ))
-;;              ((= (msg_type (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i)))) MIDI_POLY_AFTERTOUCH)
-;;               (receive_aftertouch
-;;                dev
-;;                (Pm_Message_Data1 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (Pm_Message_Data2 (Pm_Event_Message (pref-ptr input_buffer i)))
-;;                (msg_chan (Pm_Message_Status (Pm_Event_Message (pref-ptr input_buffer i))))
-;;                ))
-;;              (else void)))
-;;           (else void))
-;;       (let ((next_time (+ time (convert (* SRd delta_t)))))
-;;         (cond
-;;          ((= (midi_read_loop_go) 1)
-;;           (callback next_time midi_read_loop next_time delta_t dev)
-;;           void)
-;;          (else void))))))
-
-
-(pm_print_all_ports)
-
-(bind-func add_input_stream:[void,MIDIDeviceManager*,i32]*
+(bind-func add_input_port:[void,MIDIDeviceManager*,i32]*
   (lambda (mdm n)
+    (println "Attempting to open port " n)
     (let* ((strm:PmStream* (pm_create_input_stream n))
            (prt:MIDIPort* (MIDIPort n strm))
            (strname (String (tref (Pm_GetDeviceInfo n) 2)))
@@ -416,7 +378,7 @@
           void))))))
 
 
-(bind-func add_output_stream:[void,MIDIDeviceManager*,i32]*
+(bind-func add_output_port:[void,MIDIDeviceManager*,i32]*
   (lambda (mdm n)
     (let* ((strm:PmStream* (pm_create_output_stream n))
            (prt:MIDIPort* (MIDIPort n strm))
@@ -433,15 +395,15 @@
           void))))))
 
 
-(bind-func add_all_streams:[void,MIDIDeviceManager*]*
+(bind-func add_all_ports:[void,MIDIDeviceManager*]*
   (lambda (mdm)
     (let ((ndev:i32 (Pm_CountDevices)) (i:i32 0:i32))
       (dotimes (i ndev)
         (let* ((info:PmDeviceInfo* (Pm_GetDeviceInfo i))
               (inpt:bool (= (tref info 3) 1:i32))
               (otpt:bool (= (tref info 4) 1:i32)))
-          (if inpt (add_input_stream mdm i))
-          (if otpt (add_output_stream mdm i))))
+          (if inpt (add_input_port mdm i))
+          (if otpt (add_output_port mdm i))))
       void)))
               
           
@@ -473,6 +435,34 @@
        (else void)))))
 
 
+(bind-func disable_input_port:[void,MIDIDeviceManager*,String*]*
+  (lambda (mdm strname)
+    (let ((dev:MIDIDevice* (get_device_by_name mdm strname)))
+      (cond
+       ((non-null dev)
+        (let ((inports:List{MIDIPort*}* (input_ports dev))
+              (func:[bool,MIDIPort*]*
+               (lambda (pt:MIDIPort*)
+                 (enabled pt #f))))
+          (for-each func inports) 
+          void))
+       (else void)))))
+
+
+(bind-func disable_output_port:[void,MIDIDeviceManager*,String*]*
+  (lambda (mdm strname)
+    (let ((dev:MIDIDevice* (get_device_by_name mdm strname)))
+      (cond
+       ((non-null dev)
+        (let ((outports:List{MIDIPort*}* (output_ports dev))
+              (func:[bool,MIDIPort*]*
+               (lambda (pt:MIDIPort*)
+                 (enabled pt #f))))
+          (for-each func outports) 
+          void))
+       (else void)))))
+
+
 (bind-func enable_all_ports_on_device:[void,MIDIDevice*]*
   (lambda (dev)
     (let ((func:[bool,MIDIPort*]*
@@ -491,147 +481,39 @@
   (lambda ()
     (let ((mdm:MIDIDeviceManager* (alloc)))
       (tset! mdm 0 null)
-      (add_all_streams mdm)
-      (enable_all_ports mdm)
-      (midi_read_loop (now) 0.01 mdm)
+      (add_all_ports mdm)
+      ;(disable_all_ports mdm)
+      ;(midi_read_loop (now) 0.01 mdm)
       mdm)))
 
 
-(bind-func note_on:[void,MIDIDevice*,i64,i64,i64]*
-  (lambda (dev pitch velocity channel)
-    (let* ((outports:List{MIDIPort*}* (output_ports dev))
-           (func:[void,MIDIPort*]*
-            (lambda (pt) (Pm_WriteShort (stream pt) 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 velocity))) void)))
-      (for-each func outports)
-    void)))
-
-
-(bind-func note_off:[void,PmStream*,i64,i64]*
-  (lambda (stream pitch channel)
-    (Pm_WriteShort stream 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 0)))
+(bind-func midi_start:[void,MIDIDeviceManager*]*
+  (lambda (mdm)
+    (midi_read_loop (now) 0.01 mdm)
     void))
+
+
+;; (bind-func note_on:[void,MIDIDevice*,i64,i64,i64]*
+;;   (lambda (dev pitch velocity channel)
+;;     (let* ((outports:List{MIDIPort*}* (output_ports dev))
+;;            (func:[void,MIDIPort*]*
+;;             (lambda (pt) (Pm_WriteShort (stream pt) 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 velocity))) void)))
+;;       (for-each func outports)
+;;     void)))
+
+;; (bind-func note_off:[void,MIDIDevice*,i64,i64]*
+;;   (lambda (dev pitch channel)
+;;     (let* ((outports:List{MIDIPort*}* (output_ports dev))
+;;            (func:[void,MIDIPort*]*
+;;             (lambda (pt) (Pm_WriteShort (stream pt) 0 (Pm_Message (i64toi32 (+ 144 channel)) (i64toi32 pitch) (i64toi32 0))) void)))
+;;       (for-each func outports)
+;;     void)))
     
-(bind-func play_note:[void,i64,PmStream*,i64,i64,i64,i64]*
-  (lambda (time stream pitch velocity channel duration)
-    (callback time note_on:[void,PmStream*,i64,i64,i64]* stream pitch velocity channel)
-    (callback (+ time duration) note_off:[void,PmStream*,i64,i64]* stream pitch channel)
-    void))
+;; (bind-func play_note:[void,i64,MIDIDevice*,i64,i64,i64,i64]*
+;;   (lambda (time dev pitch velocity channel duration)
+;;     (callback time note_on:[void,MIDIDevice*,i64,i64,i64]* dev pitch velocity channel)
+;;     (callback (+ time duration) note_off:[void,MIDIDevice*,i64,i64]* dev pitch channel)
+;;     void))
 
-
-
-;; (bind-func midi_input_shazam:[PmStream*,i8*]*
-;;   (lambda (portname:i8*)
-;;     (let ((ndev (Pm_CountDevices))
-;;           (n:i32 (- ndev 1))
-;;           (loop:[i32,i32]*
-;;            (lambda (i)
-;;              (cond
-;;               ((>= i 0)
-;;                (if (and
-;;                     (= (strcmp portname (tref (Pm_GetDeviceInfo i) 2)) (i64toi32 0))
-;;                     (= (tref (Pm_GetDeviceInfo i) 3) 1))
-;;                    i
-;;                    (loop (- i 1))))
-;;               (else -1)))))
-;;       (let ((m (loop n)))
-;;         (if (>= m 0)
-;;             (let ((stream (pm_create_input_stream m)))
-;;               (midi_read_loop (now) 0.01))
-;;             null)))))
-                   
-
-;; (bind-func midi_output_shazam:[PmStream*,i8*]*
-;;   (lambda (portname:i8*)
-;;     (let ((ndev (Pm_CountDevices))
-;;           (n:i32 (- ndev 1))
-;;           (loop:[i32,i32]*
-;;            (lambda (i)
-;;              (cond
-;;               ((>= i 0)
-;;                (if (and
-;;                     (= (strcmp portname (tref (Pm_GetDeviceInfo i) 2)) (i64toi32 0))
-;;                     (= (tref (Pm_GetDeviceInfo i) 4) 1))
-;;                    i
-;;                    (loop (- i 1))))
-;;               (else -1)))))
-;;       (let ((m (loop n)))
-;;         (if (>= m 0)
-;;             (pm_create_output_stream m)
-;;             null)))))
-
-
-
-;; (bind-func midi_input_shazam:[midi_in_device*,i8*]*
-;;   (lambda (portname:i8*)
-;;     (let ((dev:midi_in_device* (zalloc)))
-;;       (newMidiInDevice dev UNSPECIFIED "Extempore Midi Input Device")
-;;       (let ((num_ports (getInPortCount dev))
-;;             (i:i64 0))
-;;         (dotimes (i num_ports)
-;;           (if (= (strcmp portname (getInPortName dev i)) (i64toi32 0))
-;;               (let ((success (openInPort dev i portname)))
-;;                 (if (= (i64toi32 0) success)
-;;                     (begin
-;;                       (midi_register_device dev "midi_receive")
-;;                       (printf "Successfully opened input port: %s\n" portname))
-;;                     (printf "Failed to open input port: %s\n" portname))))))
-;;       dev)))
-
-
-;; (bind-func midi_output_shazam:[midi_out_device*,i8*]*
-;;   (lambda (portname:i8*)
-;;     (let ((dev:midi_out_device* (zalloc)))
-;;       (newMidiOutDevice dev UNSPECIFIED "Extempore Midi Output Device")
-;;       (let ((num_ports (getOutPortCount dev))
-;;             (i:i64 0))
-;;         (dotimes (i num_ports)
-;;           (if (= (strcmp portname (getOutPortName dev i)) (i64toi32 0))
-;;               (let ((success (openOutPort dev i portname)))
-;;                 (if (= (i64toi32 0) success)
-;;                     (printf "Successfully opened output port: %s\n" portname)
-;;                     (printf "Failed to open output port: %s\n" portname))))))
-;;       dev)))
-
-
-;;;;;;;;;;;;;;;;;
-;; Example Usage
-;;
-;; ;; Sending MIDI ;;
-;; (define to_iac (midi_output_shazam "IAC Driver Bus 1"))
-;; (midi_send to_iac MIDI_NOTE_ON (i64toi8 0) pitch velocity)
-;;
-;; ;; Receiving MIDI ;;
-;; (define from_iac (midi_input_shazam "IAC Driver Bus 1"))
-;; (bind-func midi_handler:[void,i8,i8,i8,i8]*
-;;  (lambda (type chan a b)
-;;    (println "MIDI Received")  
-;;    (println type chan a b)
-;;    void))
-;;
-;; ;; NOTE - by default this merges all MIDI from all devices and ports
-;; ;; if you want to have a particular distinct MIDI handler for a given device/port
-;; ;; you need to do this for example
-
-;; (bind-func iac_midi_handler:[void,i8,i8,i8,i8]*
-;;  (lambda (type chan a b)
-;;    (println "MIDI Received from IAC port 1")  
-;;    (println type chan a b)
-;;    void))
-;;
-;; (bind-func midi_receive
-;;  (let ((type:i8 0) (chan:i8 0) (a:i8 0) (b:i8 0))
-;;    (lambda (time:double len:i64 msg:i8*)
-;;      (set! type (>> (pref msg 0) 4))
-;;      (set! chan (& (pref msg 0) 15))
-;;      (set! a (pref msg 1))
-;;      (set! b (pref msg 2))
-;;      (iac_midi_handler type chan a b)
-;;      void)))
-;;
-;; (midi_register_device from_iac "iac_midi_handler")
-;;
-;;
-;;;;;;;;;;;;;;;;
-						
 			
 (define *xtmlib-ybot_midi-loaded* #t)

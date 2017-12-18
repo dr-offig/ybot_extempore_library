@@ -27,14 +27,14 @@
 
 
 ;; this actually creates the window
-;; (bind-val window GLFWwindow*
-;;   (begin
-;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-;;     (glfw_init_and_create_fullscreen_interaction_window)))
 (bind-val window GLFWwindow*
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_interaction_window 1000 1000)))
+    (glfw_init_and_create_fullscreen_interaction_window)))
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_interaction_window 1000 1000)))
 
 
 ;; Once the window is created we can query its properties
@@ -55,78 +55,78 @@
     (set! FRAMEDELTA (* SAMPLERATE (/ 1. FRAMERATE)))
     rate))
 
-;; Setup a vertex array - one vertex per monopoke
-(bind-val num_pokes i64 7)
-(bind-val mp_vert_data float*)
-(bind-val mp_vbo VBO*)
-(bind-val mp_vao VAO*)
-(bind-val mp_prog ShaderProgram)
-(bind-val speaker_spacing float 0.1)
-(bind-val speaker_radius float 0.5)
+;; Setup a vertex array - one vertex per cubic fluid element
+(bind-val num_x i64 128)
+(bind-val num_y i64 128)
+(bind-val num_z i64 128)
+(bind-val grid_num i64 (* num_x num_y num_z))
+(bind-val grid_vert_data float*)
+(bind-val grid_vbo VBO*)
+(bind-val grid_vao VAO*)
+(bind-val grid_prog ShaderProgram)
+(bind-val alpha float 404.0)
+(bind-val mm_per_frame float 1.0)
 
-(bind-func initialise_n_shaders
-  (lambda (n:i64)
-    (set! num_pokes n)
-    (set! speaker_spacing (/ 1.0:float (i64tof num_pokes)))
-    (set! speaker_radius (* 0.5:float speaker_spacing))
-    (set! mp_prog
+(bind-func grid_coordinate:[float,i64,i64]*
+  (lambda (n m)
+    (let* ((c:float (/ (i64tof m) 2.0:float))
+          (d:float (- (i64tof n) (/ (i64tof m) 2.0:float)))
+          (e:float (/ d (i64tof m)))
+      
+      
+      
+      
+      
+    
+    
+
+(bind-func initialise_shaders
+  (lambda ()
+    (set! grid_prog
          (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/monopoke.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/monopoke.frag")))
-    (let ((tmp:float* (alloc (* 5 num_pokes))) (i:i64 0))
-      (set! mp_vert_data tmp)
-      (pfill! mp_vert_data
-              0.0 0.0 0.0  -1.0 0.0)
-      (dotimes (i (/ (- num_pokes 1) 2))
-        (pfill! (pref-ptr mp_vert_data (+ 5 (* i 10)))
-            ;; position (x,y,depth)  radiator (x,y)
-            0.0  0.0  0.0             -1.0  (* (i64tof (+ i 1)) speaker_spacing)
-            0.0  0.0  0.0             -1.0  (* -1.0 (* (i64tof (+ i 1)) speaker_spacing))
-            )))
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics.frag")))
+    (let ((tmp:float* (alloc (* 7 grid_num))) (i:i64 0) (j:i64 0) (k:i64 0) (cc:i64 0))
+      (set! grid_vert_data tmp)
+      (dotimes (i num_x)
+        (dotimes (j num_y)
+          (dotimes (k num_z)
+            (pfill!
+             (pref-ptr grid_vert_data (* 7 cc))
+          ;; x      y      z       (1/rho.c).p    vx   vy   vz
+             (/    0.0   0.0                 0.0  0.0  0.0  0.0)
+            (set! cc (+ cc 1)))))
+             
     ;;(set! mp_vbo (VBO_create (aref-ptr mp_vert_data 0) 5))
-    (set! mp_vbo (VBO_create mp_vert_data (* 5 num_pokes)))
-    (set! mp_vao (VAO_create))
-    (VAO_bind_attribute mp_vao mp_vbo 0 3 5 0) ;; position
-    (VAO_bind_attribute mp_vao mp_vbo 1 2 5 3) ;; radiator
-    void))
+    (set! grid_vbo (VBO_create grid_vert_data (* 7 grid_num)))
+    (set! grid_vao (VAO_create))
+    (VAO_bind_attribute grid_vao grid_vbo 0 3 7 0) ;; position
+    (VAO_bind_attribute grid_vao grid_vbo 1 4 7 3) ;; soundfield
+    void)))
 
-(initialise_n_shaders 7)
-;($ (run_oscilloscope #f))
+(initialise_shaders)
 
-($ (glGet GL_POINT_SIZE))
 
 (bind-func draw_frame:[void]*
-  (let ((timeloc (glGetUniformLocation mp_prog "ct"))
-        (radiusloc (glGetUniformLocation mp_prog "radius"))
-        (screenWidthLoc (glGetUniformLocation mp_prog "screenWidth"))
-        (screenHeightLoc (glGetUniformLocation mp_prog "screenHeight"))
-        (num_pokesLoc (glGetUniformLocation mp_prog "num_pokes"))
-        (a:float speaker_radius) (rate:float (convert .001)) (ct:float (convert 0.0)))
+  (let ((timeloc (glGetUniformLocation grid_prog "ct"))
+        (screenWidthLoc (glGetUniformLocation grid_prog "screenWidth"))
+        (screenHeightLoc (glGetUniformLocation grid_prog "screenHeight"))
+        (rate:float (* mm_per_frame 0.001:float))  (ct:float (convert 0.0)))
     (glEnable GL_BLEND)
     (glBlendFunc GL_ONE GL_ONE)
     (glClearColor 0.0 0.0 1.0 1.0)
     (glDisable GL_PROGRAM_POINT_SIZE)
-    (glPointSize 1000.0)
+    ;(glPointSize 1000.0)
     (lambda ()
-      ;; update clock
       (set! ct (modulo (+ ct rate) 1.0)) 
-
-      ;; clear the framebuffer's colour and depth buffers
       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
-
-      ;; render the monopokes
-      (glUseProgram mp_prog)
-      (glUniform1i num_pokesLoc (i64toi32 num_pokes))
+      (glUseProgram grid_prog)
       (glUniform1f timeloc (convert ct))
-      (glUniform1f radiusloc (convert speaker_radius))
       (glUniform1f screenWidthLoc (convert width))
       (glUniform1f screenHeightLoc (convert height))
-      (glPointSize (convert height))
-      (VAO_bind_and_draw_arrays mp_vao GL_POINTS 0 (i64toi32 num_pokes))
-
-      ;; thats all folks
+      (glPointSize (/ height (i64tof (* 2 num_y))))
+      (VAO_bind_and_draw_arrays grid_vao GL_POINTS 0 (i64toi32 grid_num))
       void)))
-
 
 (bind-func draw_loop
   (let ((go:bool #t) (initialised:bool #f))
@@ -141,7 +141,7 @@
           void))
        (else void)))))
 
-(bind-func run_oscilloscope:[void,bool]*
+(bind-func run_graphics:[void,bool]*
   (lambda (flag:bool)
     (cond
      (flag
@@ -161,7 +161,6 @@
       (draw_loop.go:bool #f)
       void))))
 
+($ (run_graphics #f))
 
-($ (run_oscilloscope #t))
-
-(define *xtmlib-ybot_oscilloscope-loaded* #t)
+(define *xtmlib-ybot_acoustics-loaded* #t)

@@ -16,6 +16,39 @@
 ;; OSCHost: network hostname (or IP address), port
 (bind-type OSCHost <String*,i64>)
 
+(bind-func OSCHost_h:[OSCHost*,i8*,i64]*
+  (lambda (ip port)
+    (cond
+     ((non-null ip)
+      (let* ((hip (String_h ip))
+             (output:OSCHost* (halloc)))
+        (tfill! output hip port)
+        output))
+     (else null))))
+
+(bind-func ip:[String*,OSCHost*]* (lambda (host) (tref host 0)))
+(bind-func ip:[String*,OSCHost*,String*]* (lambda (host value) (tset! host 0 value)))
+(bind-func port:[i64,OSCHost*]* (lambda (host) (tref host 1)))
+(bind-func port:[i64,OSCHost*,i64]* (lambda (host value) (tset! host 1 value)))
+
+;; (bind-func print:[void,OSCHost*]*
+;;   (lambda (host)
+;;     (printf "%s:%lld" (safe_cstr (ip host)) (port host))
+;;     void))
+
+(bind-func equal:[bool,OSCHost*,OSCHost*]*
+  (lambda (host1 host2)
+    (let ((ip1:String* (ip host1)) (port1:i64 (port host1))
+          (ip2:String* (ip host2)) (port2:i64 (port host2)))
+      (and (equal:[bool,String*,String*]* ip1 ip2) (= port1 port2)))))
+
+(bind-func matching_host:[bool,OSCHost*,String*,i64]*
+  (lambda (host test_ip test_port)
+    (and (equal (ip host) test_ip) (= (port host) test_port))))
+    
+
+
+      
 ;; OSCTypeString, i.e. ",fiffs"
 (bind-alias OSCTypeString String)
 
@@ -202,6 +235,8 @@
            null))))
 
 
+
+
 (bind-func osc_parse_address:[List{String*}*,i8*]*
   (lambda (address:i8*)
     (cond
@@ -216,12 +251,10 @@
      (else null))))
 
 
-(bind-alias OSC_DELEGATE [i32,List{String*}*,List{Variant*}*]*)
-(bind-func osc_receive:[i32,i8*,i8*,i8*]*
-  (let ((delegate:[i32,List{String*}*,List{Variant*}*]*
-         (lambda (address_tokens args)
-           (println address_tokens args)
-           0:i32)))
+;(bind-alias osc_delegate_t [i32,List{String*}*,List{Variant*}*]*)
+(bind-alias osc_receiver_t [i32,i8*,i8*,i8*]*)
+(bind-func osc_echo:[osc_receiver_t]*
+  (lambda ()
     (lambda (address:i8* types:i8* args:i8*)
       (cond
        ((or (null? address) (null? types) (null? args))
@@ -229,11 +262,30 @@
         -1:i32)
        (else
         ;;(printf "%s\t%s\t%p\n" address types args)
-        (delegate
+        (println
+         "OSC received: "
          (osc_parse_address address)
          (osc_parse_args (String types) (bitcast args i32*)))
         0:i32)
         ))))
+
+;; (bind-func osc_receive:[i32,i8*,i8*,i8*]*
+;;   (let ((delegate:[i32,List{String*}*,List{Variant*}*]*
+;;          (lambda (address_tokens args)
+;;            (println address_tokens args)
+;;            0:i32)))
+;;     (lambda (address:i8* types:i8* args:i8*)
+;;       (cond
+;;        ((or (null? address) (null? types) (null? args))
+;;         (println "Invalid OSC message received")
+;;         -1:i32)
+;;        (else
+;;         ;;(printf "%s\t%s\t%p\n" address types args)
+;;         (delegate
+;;          (osc_parse_address address)
+;;          (osc_parse_args (String types) (bitcast args i32*)))
+;;         0:i32)
+;;         ))))
 
 
 ;;;;;;;;;;;;;;; Example Usage ;;;;;;;;;;;;;;;
