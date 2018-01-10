@@ -1,8 +1,15 @@
 #version 400
 
-in vec2 rad_pos;
+in vec4 soundfield;  // soundfield values passed in from vertex shader
+in vec2 tex_coord;  // texture coordinate passed in from vertex shader
+
 out vec4 frag_colour;
 
+// texture sampler
+uniform sampler2D accumulator;
+
+
+/*
 vec3 HUEtoRGB(float H){
   float R = abs(H * 6. - 3.) - 1.;
   float G = 2 - abs(H * 6. - 2.);
@@ -24,15 +31,18 @@ vec4 HyperbolicGreyScale(float x){
   float y = conform(x);
   return vec4(y,y,y,1.0);
 }
+*/
 
-uniform int num_pokes;
-uniform float ct;
-uniform float radius;
-uniform float screenWidth;
-uniform float screenHeight;
 
 const float PI = 3.1415926535897932384626433832795;
 
+void main() {
+  vec3 colour;
+  colour = texture (accumulator, tex_coord).rgb;
+  frag_colour = vec4(colour,1.0);
+}
+
+/*
 void main () {
 
   float x_offset = (screenWidth - screenHeight) / (2.0 * screenHeight);
@@ -72,33 +82,6 @@ void main () {
   
   }
 
-  //frag_colour = HyperbolicGreyScale(val);
-
-  /*
-  
-  float v = val / N;
-  
-  if ((b > 0.495) || (x > 0.995)) {
-    frag_colour = vec4(1.0,1.0,1.0,1.0);
-  } else if (x < 0.005) {
-    frag_colour = vec4(1.0,1.0,1.0,1.0);
-  } else if (x < 0.01) {
-    if (y < a) {
-      frag_colour = vec4(1.0,1.0,0.0,1.0);
-    } else {
-        frag_colour = vec4(1.0,0.0,0.0,0.0);
-    }
-  } else {
-
-    if (v > 1.0){
-      frag_colour = vec4(1.0,0.0,0.0,1.0);
-    } else if (v < 0.0){
-      frag_colour = vec4(0.0,0.0,1.0,1.0);
-    } else {
-      frag_colour = vec4(v,v,v,1.0);
-    }
-  }
-  */  
   frag_colour = vec4(gl_FragCoord.x, gl_FragCoord.y,0.0,1.0);
   
-}
+} */

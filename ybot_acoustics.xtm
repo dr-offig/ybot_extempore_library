@@ -41,6 +41,7 @@
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
 (bind-val width float (glfw_get_window_width window))
 (bind-val height float (glfw_get_window_height window))
+(bind-val ar float (/ height width))
 (bind-val cx float (/ width 2.0:float))
 (bind-val cy float (/ height 2.0:float))
 
@@ -55,10 +56,13 @@
     (set! FRAMEDELTA (* SAMPLERATE (/ 1. FRAMERATE)))
     rate))
 
+;(frame_rate 2.0)
+
+;;;;;;;;;;;;;;;;; Compute Shaders ;;;;;;;;;;
 ;; Setup a vertex array - one vertex per cubic fluid element
-(bind-val num_x i64 128)
-(bind-val num_y i64 128)
-(bind-val num_z i64 128)
+(bind-val num_x i64 16)
+(bind-val num_y i64 16)
+(bind-val num_z i64 16)
 (bind-val grid_num i64 (* num_x num_y num_z))
 (bind-val grid_vert_data float*)
 (bind-val grid_vbo VBO*)
@@ -66,66 +70,187 @@
 (bind-val grid_prog ShaderProgram)
 (bind-val alpha float 404.0)
 (bind-val mm_per_frame float 1.0)
+(bind-val fbo1 FBO*)
+(bind-val fbo2 FBO*)
 
-(bind-func grid_coordinate:[float,i64,i64]*
-  (lambda (n m)
-    (let* ((c:float (/ (i64tof m) 2.0:float))
-          (d:float (- (i64tof n) (/ (i64tof m) 2.0:float)))
-          (e:float (/ d (i64tof m)))
-      
-      
-      
-      
-      
-    
-    
+;; 2 = d * num
+;; d = 2 / num
+;; a(n) = n * d  -  1
+;; b(n) = (n+1) * d  - 1
+;; c(n) = a(n) + 0.5 * d
+;;        = (n + 0.5) * d  -  1
+;;        = (n + 0.5) * 2 / num  - 1
 
-(bind-func initialise_shaders
+(bind-func grid_coord:[float,i64,i64]*
+  (lambda (n num)
+    (cond
+     ((< 0 num)
+      (- (/ (* (+ (i64tof n) 0.5:float) 2.0:float) (i64tof num)) 1.0:float)) 
+     (else 0.0:float))))
+      
+;; d = 1 / num
+;; a(n) = n * d
+;; b(n) = (n+1) * d
+;; c(n) = (n + 0.5) * d
+;;        = (n + 0.5) / num
+
+(bind-func tex_coord:[float,i64,i64]*
+  (lambda (n num)
+    (cond
+     ((< 0 num)
+      (/ (+ (i64tof n) 0.5:float) (i64tof num)))
+     (else 0.0:float))))
+      
+
+(bind-func initialise_compute_shaders
   (lambda ()
     (set! grid_prog
          (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics.frag")))
-    (let ((tmp:float* (alloc (* 7 grid_num))) (i:i64 0) (j:i64 0) (k:i64 0) (cc:i64 0))
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics_compute.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics_compute.frag")))
+    (let ((tmp:float* (alloc (* 9 grid_num))) (i:i64 0) (j:i64 0) (k:i64 0) (cc:i64 0))
       (set! grid_vert_data tmp)
       (dotimes (i num_x)
         (dotimes (j num_y)
           (dotimes (k num_z)
             (pfill!
-             (pref-ptr grid_vert_data (* 7 cc))
-          ;; x      y      z       (1/rho.c).p    vx   vy   vz
-             (/    0.0   0.0                 0.0  0.0  0.0  0.0)
+             (pref-ptr grid_vert_data (* 9 cc))
+             ;;               x                                 y                           z             (1/rho.c).p    vx   vy   vz      s   t
+             (grid_coord i num_x)    (grid_coord j num_y)   (grid_coord k num_z)
+             0.0 0.0 1.0 1.0 (tex_coord i num_x) (tex_coord j num_y))
             (set! cc (+ cc 1)))))
              
     ;;(set! mp_vbo (VBO_create (aref-ptr mp_vert_data 0) 5))
-    (set! grid_vbo (VBO_create grid_vert_data (* 7 grid_num)))
+    (set! grid_vbo (VBO_create grid_vert_data (* 9 grid_num)))
     (set! grid_vao (VAO_create))
-    (VAO_bind_attribute grid_vao grid_vbo 0 3 7 0) ;; position
-    (VAO_bind_attribute grid_vao grid_vbo 1 4 7 3) ;; soundfield
+    (VAO_bind_attribute grid_vao grid_vbo 0 3 9 0) ;; position
+    (VAO_bind_attribute grid_vao grid_vbo 1 4 9 3) ;; soundfield
+    (VAO_bind_attribute grid_vao grid_vbo 2 2 9 7) ;; tex coord
+    (println (set! fbo1 (FBO_create_with_textures (ftoi32 width) (ftoi32 height) #f)))
+    (println (set! fbo2 (FBO_create_with_textures (ftoi32 width) (ftoi32 height) #f)))
     void)))
 
-(initialise_shaders)
+(initialise_compute_shaders)
+
+
+
+;;;;;;;;;; Preview Shaders ;;;;;;;;;
+(bind-val screen_vert_data float*)
+(bind-val screen_vao VAO* (VAO_create_ss_quad))
+(bind-val screen_vbo VBO*)
+(bind-val screen_prog ShaderProgram)
+
+(bind-func initialise_screen_shaders
+  (lambda ()
+    (set! screen_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/texture2screen.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/texture2screen.frag")))
+    (let ((tmp:float* (salloc 16)))
+      (pfill! tmp
+              ;; x     y               tex_coord
+              -1.0   -1.              0.     0.
+              -1.0    1.              0.     1.
+               1.0   -1.              1.     0.
+               1.0    1.              1.     1.
+               )
+    (set! screen_vbo (VBO_create tmp 16))
+    (set! screen_vao (VAO_create))
+    (VAO_bind_attribute screen_vao screen_vbo 0 2 4 0) ;; normalised device coordinates (x,y) origin at centre
+    (VAO_bind_attribute screen_vao screen_vbo 1 2 4 2) ;; texture coordinate (x,y) origin at bottom-left
+    void)))
+
+
+(initialise_screen_shaders)
+
+;; (bind-func clean_slate:[void,GLuint*,GLuint*]*
+;;   (lambda (pFramebuffer pTexture)
+;;     (println "Cleaning the slate")
+;;     (glDeleteTextures 1 pTexture)
+;;     (glDeleteFramebuffers 1 pFramebuffer)
+;;     void))
 
 
 (bind-func draw_frame:[void]*
-  (let ((timeloc (glGetUniformLocation grid_prog "ct"))
-        (screenWidthLoc (glGetUniformLocation grid_prog "screenWidth"))
-        (screenHeightLoc (glGetUniformLocation grid_prog "screenHeight"))
-        (rate:float (* mm_per_frame 0.001:float))  (ct:float (convert 0.0)))
-    (glEnable GL_BLEND)
-    (glBlendFunc GL_ONE GL_ONE)
-    (glClearColor 0.0 0.0 1.0 1.0)
+  (let ((drawbuffers_ptr:GLenum* (zalloc))
+            ;(timeloc (glGetUniformLocation grid_prog "ct"))
+        ;(screenWidthLoc (glGetUniformLocation grid_prog "screenWidth"))
+        ;(screenHeightLoc (glGetUniformLocation grid_prog "screenHeight"))
+        ;(rate:float (* mm_per_frame 0.001:float))  (ct:float (convert 0.0))
+        ;(pFramebuffer:GLuint* (alloc)) (pTexture:GLuint* (alloc))
+        (accumulatorLoc:GLint (glGetUniformLocation grid_prog "accumulator"))
+        (status:GLenum 0))
+    ;;(glGenFramebuffers 1  pFramebuffer)
+    ;; Set up the FBO with one texture attachment
+    ;;(glBindFramebuffer GL_FRAMEBUFFER  (pref pFramebuffer 0))
+    ;;(glGenTextures 1 pTexture)
+    ;;(glBindTexture GL_TEXTURE_2D (pref pTexture 0))
+    ;;(glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER GL_LINEAR)
+    ;;(glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER GL_LINEAR)
+    ;;(glTexImage2D GL_TEXTURE_2D 0 GL_RGBA8 (ftoi64 width) (ftoi64 height) 0 GL_RGBA GL_UNSIGNED_BYTE null)
+    ;;(glFramebufferTexture GL_FRAMEBUFFER GL_COLOR_ATTACHMENT0 GL_TEXTURE_2D (pref pTexture 0) 0)
+    ;;(set! status (glCheckFramebufferStatus GL_DRAW_FRAMEBUFFER))
+    ;;(if (<> status GL_FRAMEBUFFER_COMPLETE) (println "Error: " status))
+    ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+    
+    ;(glEnable GL_BLEND)
+    ;(glBlendFunc GL_ONE GL_ONE)
+    (pset! drawbuffers_ptr 0 GL_COLOR_ATTACHMENT0)
+    (glClearColor 0.0 0.0 0.0 1.0)
     (glDisable GL_PROGRAM_POINT_SIZE)
-    ;(glPointSize 1000.0)
+    ;(glPointSize 10.0)
     (lambda ()
-      (set! ct (modulo (+ ct rate) 1.0)) 
-      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      ;(set! ct (modulo (+ ct rate) 1.0))
       (glUseProgram grid_prog)
-      (glUniform1f timeloc (convert ct))
-      (glUniform1f screenWidthLoc (convert width))
-      (glUniform1f screenHeightLoc (convert height))
-      (glPointSize (/ height (i64tof (* 2 num_y))))
-      (VAO_bind_and_draw_arrays grid_vao GL_POINTS 0 (i64toi32 grid_num))
+      (glUniform1i accumulatorLoc 0)
+
+      ;; The shaders take input from the previous pass via a second framebuffer
+      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id fbo2))
+      (glActiveTexture GL_TEXTURE0)
+      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo2))
+      (glReadBuffer GL_COLOR_ATTACHMENT0)
+      
+      ;; Bind the compute buffer (so rendering will be into its texture attachment)
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER  (FBO_id fbo1))
+      (glActiveTexture GL_TEXTURE0)
+      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo1))
+      (glDrawBuffers 1 drawbuffers_ptr)
+
+      ;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      
+      
+      ;(glUniform1f timeloc (convert ct))
+      ;(glUniform1f screenWidthLoc (convert width))
+      ;(glUniform1f screenHeightLoc (convert height))
+      (glPointSize (/ height (i64tof (* 1 num_y))))
+      (glBindVertexArray (VAO_id grid_vao))
+      (glDrawArrays GL_POINTS 0 (i64toi32 grid_num))
+      ;(VAO_bind_and_draw_arrays grid_vao GL_POINTS 0 (i64toi32 grid_num))
+
+      ;;;;;;; Preview the computed texture on screen ;;;;;;;
+      ;; Bind the default buffer (which means rendering will be to screen)
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+      ;; clear the default framebuffer's colour and depth buffers
+      ;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      ;; our post-processing shader for the screen-space quad
+      (glUseProgram screen_prog)
+      ;; bind the screen quad's VAO
+      (glBindVertexArray (VAO_id screen_vao))
+      ;; activate the first texture slot and put texture from previous pass in it
+      (glActiveTexture GL_TEXTURE0)
+      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo1))
+      ;; draw the quad
+      (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+
+      ;; and finally store the output of this pass for use next pass
+      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id fbo1))
+      (glReadBuffer GL_COLOR_ATTACHMENT0)
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id fbo2))
+      (glActiveTexture GL_TEXTURE0)
+      (glDrawBuffers 1 drawbuffers_ptr)
+      
+      ;; (glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA 0 0 (ftoi32 width) (ftoi32 height) 0)
+      
       void)))
 
 (bind-func draw_loop
@@ -161,6 +286,7 @@
       (draw_loop.go:bool #f)
       void))))
 
-($ (run_graphics #f))
+(frame_rate 2.0)
+($ (run_graphics #t))
 
 (define *xtmlib-ybot_acoustics-loaded* #t)
