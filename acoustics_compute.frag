@@ -1,14 +1,15 @@
 #version 400
 
 //in vec4 soundfield;  // soundfield values passed in from vertex shader
-in vec2 tex_coord;  // texture coordinate passed in from vertex shader
+//in vec2 tex_coord;  // texture coordinate passed in from vertex shader
 
 out vec4 frag_colour;
 
 // texture sampler
 uniform sampler2D accumulator;
 uniform float dt;
-uniform float mpp;
+//uniform float mpp;
+uniform float Lm;
 
 /*
 vec3 HUEtoRGB(float H){
@@ -67,29 +68,33 @@ const float beta = -376.6478;
 
 
 void main() {
-  float x = gl_FragCoord.x - 0.5;
-  float y = gl_FragCoord.y - 0.5;
+  //float x = gl_FragCoord.x - 0.5;
+  //float y = gl_FragCoord.y - 0.5;
+  float x = gl_PointCoord.x;
+  float y = 1.0 - gl_PointCoord.y;
   ivec2 sz = textureSize(accumulator,0);
-  float da = 1.0 / float(sz.x);
-  float db = 1.0 / float(sz.y);
+  float dx = 1.0 / float(sz.x);
+  float dy = 1.0 / float(sz.y);
+  float Dx = Lm * dx;
+  float Dy = Lm * dy;
   
   // Sample the soundfield at this point, and the 4 nearest neighbors up/down/left/right
-  vec4 soundfield = texture (accumulator, tex_coord).rgba;
+  vec4 soundfield = texture (accumulator, vec2(x, y)).rgba;
   vec4 sf_up;
   vec4 sf_down;
   vec4 sf_left;
   vec4 sf_right;
   
-  if (x > 0.0) sf_left = texture(accumulator,vec2(tex_coord.s - da, tex_coord.t));
+  if (x > 0.0) sf_left = texture(accumulator,vec2(x - dx, y));
   else sf_left = soundfield;
 
-  if (x < float(sz.x - 1)) sf_right = texture(accumulator, vec2(tex_coord.s + da, tex_coord.t));
+  if (x < 1.0) sf_right = texture(accumulator, vec2(x + dx, y));
   else sf_right = soundfield;
   
-  if (y > 0.0) sf_down = texture(accumulator, vec2(tex_coord.s, tex_coord.t - db));
+  if (y > 0.0) sf_down = texture(accumulator, vec2(x, y - dy));
   else sf_down = soundfield;
 
-  if (y < float(sz.y - 1)) sf_up = texture(accumulator, vec2(tex_coord.s, tex_coord.t + db));
+  if (y < 1.0) sf_up = texture(accumulator, vec2(x, y + dy));
   else sf_up = soundfield;
 
 
@@ -105,26 +110,26 @@ void main() {
   float dvy_y;
   
   
-  if (x > 0.0 && x < float(sz.x - 1)) {
-    dp_x = 0.5 * (sf_right.b - sf_left.b) * mpp;
-    dvx_x = 0.5 * (sf_right.r - sf_left.r) * mpp;
-  } else if (x < float(sz.x - 1)) {
-    dp_x = (sf_right.b - soundfield.b) * mpp;
-    dvx_x = (sf_right.r - soundfield.r) * mpp;
+  if (x > 0.0 && x < 1.0) {
+    dp_x = 0.5 * (sf_right.b - sf_left.b) * Dx;
+    dvx_x = 0.5 * (sf_right.r - sf_left.r) * Dx;
+  } else if (x < 1.0) {
+    dp_x = (sf_right.b - soundfield.b) * Dx;
+    dvx_x = (sf_right.r - soundfield.r) * Dx;
   } else {
-    dp_x = (soundfield.b - sf_left.b) * mpp;
-    dvx_x = (soundfield.r - sf_left.r) * mpp;
+    dp_x = (soundfield.b - sf_left.b) * Dx;
+    dvx_x = (soundfield.r - sf_left.r) * Dx;
   }
   
-  if (y > 0.0 && y < float(sz.y - 1)) {
-    dp_y = 0.5 * (sf_up.b - sf_down.b) * mpp;
-    dvy_y = 0.5 * (sf_up.g - sf_down.g) * mpp;
-  } else if (y < float(sz.y - 1)) {
-    dp_y = (sf_up.b - soundfield.b) * mpp;
-    dvy_y = (sf_up.g - soundfield.g) * mpp;
+  if (y > 0.0 && y < 1.0) {
+    dp_y = 0.5 * (sf_up.b - sf_down.b) * Dy;
+    dvy_y = 0.5 * (sf_up.g - sf_down.g) * Dy;
+  } else if (y < 1.0) {
+    dp_y = (sf_up.b - soundfield.b) * Dy;
+    dvy_y = (sf_up.g - soundfield.g) * Dy;
   } else {
-    dp_y = (soundfield.b - sf_down.b) * mpp;
-    dvy_y = (soundfield.g - sf_down.g) * mpp;
+    dp_y = (soundfield.b - sf_down.b) * Dy;
+    dvy_y = (soundfield.g - sf_down.g) * Dy;
   }
   
   vec2 grad_p = vec2(dp_x, dp_y);
@@ -140,8 +145,9 @@ void main() {
   float p = soundfield.b + dp;
   //frag_colour = vec4(1.0,1.0,1.0,1.0);
   
-  
-  frag_colour = vec4(v,p,1.0);
+  frag_colour = vec4(v,p,1.0);                              
+  //frag_colour = vec4(v,p,1.0);
+
   // float spill_x = abs(fract(x-0.5));
   // float spill_y = abs(fract(y-0.5));
   // if (spill_x > 0.0)
