@@ -1,13 +1,14 @@
 #version 400
 
-in vec4 soundfield;  // soundfield values passed in from vertex shader
+//in vec4 soundfield;  // soundfield values passed in from vertex shader
 in vec2 tex_coord;  // texture coordinate passed in from vertex shader
 
 out vec4 frag_colour;
 
 // texture sampler
 uniform sampler2D accumulator;
-
+uniform float dt;
+uniform float mpp;
 
 /*
 vec3 HUEtoRGB(float H){
@@ -33,13 +34,123 @@ vec4 HyperbolicGreyScale(float x){
 }
 */
 
+  
+const float PI = 3.14159;
+const float rho = 1.186;
+const float c = 343.0;
+const float k = 0.000007;
 
-const float PI = 3.1415926535897932384626433832795;
+// gain factor applied to actual pressure to help conditioning
+const float g = 0.002655;
+
+// some precalculated values
+const float alpha = -319.1931;
+const float beta = -376.6478;
+
+// with this substitution (i.e. p => p * g) the acoustic equations are:
+//   dv / dt =  (-1 / (rho * g)) * nablap       or     dv = dt * alpha * grad_p
+//   dp / dt =              (-g/k) * nabladotv              dp = dt * beta * div_v
+
+
+//const float gamma = -0.000006;
+//const float gamma = -1.0;
+
+
+// rgba <=> [vx vy vz g*p]
+
+// dv / dt = - rho grad p
+// we first need to calculate the gradient of the alpha coordinate
+// gradient of a single dimension function f(n) is
+// f'(n) = 0.5 * (f(n+1) - f(n-1)) for interior points 0 < n < max
+// f'(0) = f(1) - f(0)  at left edge
+// f'(max) = f(max) - f(max-1) at right edge
+
 
 void main() {
-  vec3 colour;
-  colour = texture (accumulator, tex_coord).rgb;
-  frag_colour = vec4(colour,1.0);
+  float x = gl_FragCoord.x - 0.5;
+  float y = gl_FragCoord.y - 0.5;
+  ivec2 sz = textureSize(accumulator,0);
+  float da = 1.0 / float(sz.x);
+  float db = 1.0 / float(sz.y);
+  
+  // Sample the soundfield at this point, and the 4 nearest neighbors up/down/left/right
+  vec4 soundfield = texture (accumulator, tex_coord).rgba;
+  vec4 sf_up;
+  vec4 sf_down;
+  vec4 sf_left;
+  vec4 sf_right;
+  
+  if (x > 0.0) sf_left = texture(accumulator,vec2(tex_coord.s - da, tex_coord.t));
+  else sf_left = soundfield;
+
+  if (x < float(sz.x - 1)) sf_right = texture(accumulator, vec2(tex_coord.s + da, tex_coord.t));
+  else sf_right = soundfield;
+  
+  if (y > 0.0) sf_down = texture(accumulator, vec2(tex_coord.s, tex_coord.t - db));
+  else sf_down = soundfield;
+
+  if (y < float(sz.y - 1)) sf_up = texture(accumulator, vec2(tex_coord.s, tex_coord.t + db));
+  else sf_up = soundfield;
+
+
+  //vec2 grad_p = vec2(dFdx(soundfield.b),dFdy(soundfield.b));
+  //float div_v = dFdx(soundfield.r) + dFdy(soundfield.g);
+
+  // Calculate the gradient of the pressure field (stored in blue channel of soundfield)
+  // Also calculate the divergence of the velocity field
+  // vx = red channel and vy = green channel of soundfield
+  float dp_x;
+  float dp_y;
+  float dvx_x;
+  float dvy_y;
+  
+  
+  if (x > 0.0 && x < float(sz.x - 1)) {
+    dp_x = 0.5 * (sf_right.b - sf_left.b) * mpp;
+    dvx_x = 0.5 * (sf_right.r - sf_left.r) * mpp;
+  } else if (x < float(sz.x - 1)) {
+    dp_x = (sf_right.b - soundfield.b) * mpp;
+    dvx_x = (sf_right.r - soundfield.r) * mpp;
+  } else {
+    dp_x = (soundfield.b - sf_left.b) * mpp;
+    dvx_x = (soundfield.r - sf_left.r) * mpp;
+  }
+  
+  if (y > 0.0 && y < float(sz.y - 1)) {
+    dp_y = 0.5 * (sf_up.b - sf_down.b) * mpp;
+    dvy_y = 0.5 * (sf_up.g - sf_down.g) * mpp;
+  } else if (y < float(sz.y - 1)) {
+    dp_y = (sf_up.b - soundfield.b) * mpp;
+    dvy_y = (sf_up.g - soundfield.g) * mpp;
+  } else {
+    dp_y = (soundfield.b - sf_down.b) * mpp;
+    dvy_y = (soundfield.g - sf_down.g) * mpp;
+  }
+  
+  vec2 grad_p = vec2(dp_x, dp_y);
+  float div_v = dvx_x + dvy_y;
+
+ 
+  // Apply fundamental equations of acoustics!
+  vec2 dv = dt * alpha * grad_p;        // conservation of momentum (F = ma)
+  float dp = dt * beta  * div_v;         // conservation of mass
+
+  // now update the soundfield
+  vec2 v = soundfield.rg + dv;
+  float p = soundfield.b + dp;
+  //frag_colour = vec4(1.0,1.0,1.0,1.0);
+  
+  
+  frag_colour = vec4(v,p,1.0);
+  // float spill_x = abs(fract(x-0.5));
+  // float spill_y = abs(fract(y-0.5));
+  // if (spill_x > 0.0)
+  //   frag_colour.r = 0.0;
+
+  // if (spill_y > 0.0)
+  //     frag_colour.g = 0.0;
+
+      //frag_colour = vec4(dv,dp,1.0);
 }
 
 /*

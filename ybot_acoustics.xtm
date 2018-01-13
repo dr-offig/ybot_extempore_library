@@ -41,9 +41,12 @@
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
 (bind-val width float (glfw_get_window_width window))
 (bind-val height float (glfw_get_window_height window))
+(bind-val w GLuint (ftoi32 width))
+(bind-val h GLuint (ftoi32 height))
 (bind-val ar float (/ height width))
 (bind-val cx float (/ width 2.0:float))
 (bind-val cy float (/ height 2.0:float))
+
 
 ;; this is the video frame-rate
 (bind-val FRAMERATE float 60.)
@@ -58,79 +61,135 @@
 
 ;(frame_rate 2.0)
 
-;;;;;;;;;;;;;;;;; Compute Shaders ;;;;;;;;;;
-;; Setup a vertex array - one vertex per cubic fluid element
-(bind-val num_x i64 16)
-(bind-val num_y i64 16)
-(bind-val num_z i64 16)
-(bind-val grid_num i64 (* num_x num_y num_z))
-(bind-val grid_vert_data float*)
-(bind-val grid_vbo VBO*)
-(bind-val grid_vao VAO*)
-(bind-val grid_prog ShaderProgram)
-(bind-val alpha float 404.0)
-(bind-val mm_per_frame float 1.0)
-(bind-val fbo1 FBO*)
-(bind-val fbo2 FBO*)
 
-;; 2 = d * num
-;; d = 2 / num
-;; a(n) = n * d  -  1
-;; b(n) = (n+1) * d  - 1
-;; c(n) = a(n) + 0.5 * d
-;;        = (n + 0.5) * d  -  1
-;;        = (n + 0.5) * 2 / num  - 1
+;;;;;;;;; create required textures ;;;;;;;;
+(bind-func Texture_bind_data_to_slot
+  (lambda (tex:Texture data:float* width height chan:i32 wrap filter slot:i32)
+    (let ((slot_id:GLenum (+ slot GL_TEXTURE0))
+          (format (cond ((= chan 1) GL_R32F)
+                        ((= chan 3) GL_RGB32F)
+                        ((= chan 4) GL_RGBA32F)
+                        (else 0:i32))))
+          (cond
+           ((= format 0) (println "Error: only chan must be 1, 3 or 4.") #f)
+           (else
+            (glActiveTexture slot_id)
+            (glBindTexture GL_TEXTURE_2D tex)
+            (glTexImage2D GL_TEXTURE_2D 0 format width height 0 format GL_FLOAT (convert data))
+                       ;; set some parameters
+            (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_S wrap)
+            (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_T wrap)
+            (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER filter)
+            (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER filter)
+            (gl_print_error "couldn't Texture_bind_image")
+            #t)))))
+                
 
-(bind-func grid_coord:[float,i64,i64]*
-  (lambda (n num)
-    (cond
-     ((< 0 num)
-      (- (/ (* (+ (i64tof n) 0.5:float) 2.0:float) (i64tof num)) 1.0:float)) 
-     (else 0.0:float))))
-      
-;; d = 1 / num
-;; a(n) = n * d
-;; b(n) = (n+1) * d
-;; c(n) = (n + 0.5) * d
-;;        = (n + 0.5) / num
+(bind-func Texture_bind_image_to_slot
+  (lambda (tex:Texture filename:i8* slot:i32)
+    ;; seems to need to be set
+    (stbi_set_flip_vertically_on_load 1)
+    (let ((width_ptr:i32* (salloc))
+          (height_ptr:i32* (salloc))
+          (comp_ptr:i32* (salloc))
+          (white:GLfloat* (salloc 4))
+          (slot_id:GLenum (+ slot GL_TEXTURE0))
+          (data (stbi_load filename width_ptr height_ptr comp_ptr 4)))
+      (cond
+       ((null? data) (println (stbi_failure_reason)) -1)
+       (else
+        (pfill! white 1.0 1.0 1.0 1.0)
+        (glActiveTexture slot_id)
+        (glBindTexture GL_TEXTURE_2D tex)
+        (glTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F (pref width_ptr 0) (pref height_ptr 0) 0 GL_RGBA GL_UNSIGNED_BYTE data)
+        (glTexParameterfv GL_TEXTURE_2D GL_TEXTURE_BORDER_COLOR white)
+        (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_S GL_CLAMP_TO_BORDER)
+        (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_T GL_CLAMP_TO_BORDER)
+        (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER GL_NEAREST)
+        (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER GL_NEAREST)
+        (gl_print_error "couldn't Texture_bind_image")
+        tex)))))
 
-(bind-func tex_coord:[float,i64,i64]*
-  (lambda (n num)
-    (cond
-     ((< 0 num)
-      (/ (+ (i64tof n) 0.5:float) (i64tof num)))
-     (else 0.0:float))))
-      
 
-(bind-func initialise_compute_shaders
+(bind-func FBO_load_texture_to_colour_attachment_at_slot:[i32,FBO*,Texture,i32,i32]*
+  (lambda (fbo:FBO* tex:Texture attachment:i32 slot:i32)
+    (let ((attachment_id:GLenum (+ attachment GL_COLOR_ATTACHMENT0))
+          (slot_id:GLenum (+ slot GL_TEXTURE0)))
+      (cond
+       ((= (glIsTexture tex) GL_TRUE)
+        (glActiveTexture slot_id)
+        (glBindTexture GL_TEXTURE_2D tex)
+        (glBindFramebuffer GL_FRAMEBUFFER (FBO_id fbo))
+        (glFramebufferTexture2D GL_FRAMEBUFFER attachment_id GL_TEXTURE_2D tex 0)
+        (cond
+         ((= (glCheckFramebufferStatus GL_FRAMEBUFFER) GL_FRAMEBUFFER_COMPLETE)
+          ;; query the texture for its width and height
+          (let ((tw:i32* (salloc)) (th:i32* (salloc)))
+            (glGetTexLevelParameteriv GL_TEXTURE_2D 0 GL_TEXTURE_WIDTH tw)
+            (glGetTexLevelParameteriv GL_TEXTURE_2D 0 GL_TEXTURE_HEIGHT th)
+            ;; fill the FBO tuple with metadata
+            (tfill! fbo (FBO_id fbo) tex -1 (pref tw 0) (pref th 0)))
+            ;; unbind the frame buffer
+            (glBindFramebuffer GL_FRAMEBUFFER 0)
+            0:i32)
+         (else
+          (println "Error loading texture at slot " slot " into framebuffer attachment " attachment)
+          (gl_print_error "Error loading texture into framebuffer")
+          -2:i32)))
+       (else
+        (println "Error loading texture into framebuffer: texture " tex " needs to be initialised first")
+        (gl_print_error "Error loading texture into framebuffer")
+        -1:i32)))))
+
+
+(bind-val squiggle_tex Texture (Texture_create))
+($ (Texture_bind_image squiggle_tex "/Users/ybot/Documents/code/sketch/extempriments/squiggle.jpg"))
+
+(bind-val gus_tex Texture (Texture_create))
+($ (Texture_bind_image gus_tex "/Users/ybot/Documents/code/sketch/extempriments/gus.jpg"))
+
+(bind-val read_tex Texture (Texture_create))
+($ (Texture_bind_image_to_slot read_tex "/Users/ybot/Documents/code/sketch/extempriments/soundfield.png" 0))
+
+(bind-val render_tex Texture (Texture_create))
+($ (Texture_bind_image_to_slot render_tex "/Users/ybot/Documents/code/sketch/extempriments/soundfield.png" 1))
+
+
+
+;;;;;;;;;;;;;;;;; Acoustics computations in glsl shaders ;;;;;;;;;;;;;;;;;;;
+(bind-val acoustics_vert_data float*)
+(bind-val acoustics_vao VAO*)
+(bind-val acoustics_vbo VBO*)
+(bind-val acoustics_prog ShaderProgram)
+(bind-val acoustics_fbo FBO* (FBO_create))
+(bind-val c float 343.0)
+(bind-val metres_per_pixel float 0.001)
+
+(bind-func initialise_acoustics_shaders
   (lambda ()
-    (set! grid_prog
+    (set! acoustics_prog
          (ShaderProgram_create
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics_compute.vert")
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics_compute.frag")))
-    (let ((tmp:float* (alloc (* 9 grid_num))) (i:i64 0) (j:i64 0) (k:i64 0) (cc:i64 0))
-      (set! grid_vert_data tmp)
-      (dotimes (i num_x)
-        (dotimes (j num_y)
-          (dotimes (k num_z)
-            (pfill!
-             (pref-ptr grid_vert_data (* 9 cc))
-             ;;               x                                 y                           z             (1/rho.c).p    vx   vy   vz      s   t
-             (grid_coord i num_x)    (grid_coord j num_y)   (grid_coord k num_z)
-             0.0 0.0 1.0 1.0 (tex_coord i num_x) (tex_coord j num_y))
-            (set! cc (+ cc 1)))))
-             
-    ;;(set! mp_vbo (VBO_create (aref-ptr mp_vert_data 0) 5))
-    (set! grid_vbo (VBO_create grid_vert_data (* 9 grid_num)))
-    (set! grid_vao (VAO_create))
-    (VAO_bind_attribute grid_vao grid_vbo 0 3 9 0) ;; position
-    (VAO_bind_attribute grid_vao grid_vbo 1 4 9 3) ;; soundfield
-    (VAO_bind_attribute grid_vao grid_vbo 2 2 9 7) ;; tex coord
-    (println (set! fbo1 (FBO_create_with_textures (ftoi32 width) (ftoi32 height) #f)))
-    (println (set! fbo2 (FBO_create_with_textures (ftoi32 width) (ftoi32 height) #f)))
+    (let ((tmp:float* (salloc 20)))
+      (pfill! tmp
+              ;; x     y    z           tex_coord
+              -1.0   -1.  0.5           0.     0.
+              -1.0    1.  0.5           0.     1.
+               1.0   -1.  0.5           1.     0.
+               1.0    1.  0.5           1.     1.
+               )
+    (set! acoustics_vbo (VBO_create tmp 20))
+    (set! acoustics_vao (VAO_create))
+    (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 5 0) ;; normalised device coordinates (x,y) origin at centre
+    (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 5 3) ;; texture coordinate (x,y) origin at bottom-left
+    (Texture_bind_image_to_slot read_tex "/Users/ybot/Documents/code/sketch/extempriments/soundfield.png" 0))
+    (FBO_load_texture_to_colour_attachment_at_slot acoustics_fbo render_tex 0 1)
+        ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
     void)))
 
-(initialise_compute_shaders)
+(initialise_acoustics_shaders)
+($ (println acoustics_fbo))
 
 
 
@@ -144,8 +203,8 @@
   (lambda ()
     (set! screen_prog
          (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/texture2screen.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/texture2screen.frag")))
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/visualise_soundfield.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/visualise_soundfield.frag")))
     (let ((tmp:float* (salloc 16)))
       (pfill! tmp
               ;; x     y               tex_coord
@@ -163,95 +222,121 @@
 
 (initialise_screen_shaders)
 
-;; (bind-func clean_slate:[void,GLuint*,GLuint*]*
-;;   (lambda (pFramebuffer pTexture)
-;;     (println "Cleaning the slate")
-;;     (glDeleteTextures 1 pTexture)
-;;     (glDeleteFramebuffers 1 pFramebuffer)
-;;     void))
-
-
-(bind-func draw_frame:[void]*
-  (let ((drawbuffers_ptr:GLenum* (zalloc))
-            ;(timeloc (glGetUniformLocation grid_prog "ct"))
-        ;(screenWidthLoc (glGetUniformLocation grid_prog "screenWidth"))
-        ;(screenHeightLoc (glGetUniformLocation grid_prog "screenHeight"))
-        ;(rate:float (* mm_per_frame 0.001:float))  (ct:float (convert 0.0))
-        ;(pFramebuffer:GLuint* (alloc)) (pTexture:GLuint* (alloc))
-        (accumulatorLoc:GLint (glGetUniformLocation grid_prog "accumulator"))
-        (status:GLenum 0))
-    ;;(glGenFramebuffers 1  pFramebuffer)
-    ;; Set up the FBO with one texture attachment
-    ;;(glBindFramebuffer GL_FRAMEBUFFER  (pref pFramebuffer 0))
-    ;;(glGenTextures 1 pTexture)
-    ;;(glBindTexture GL_TEXTURE_2D (pref pTexture 0))
-    ;;(glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER GL_LINEAR)
-    ;;(glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER GL_LINEAR)
-    ;;(glTexImage2D GL_TEXTURE_2D 0 GL_RGBA8 (ftoi64 width) (ftoi64 height) 0 GL_RGBA GL_UNSIGNED_BYTE null)
-    ;;(glFramebufferTexture GL_FRAMEBUFFER GL_COLOR_ATTACHMENT0 GL_TEXTURE_2D (pref pTexture 0) 0)
-    ;;(set! status (glCheckFramebufferStatus GL_DRAW_FRAMEBUFFER))
-    ;;(if (<> status GL_FRAMEBUFFER_COMPLETE) (println "Error: " status))
-    ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
-    
-    ;(glEnable GL_BLEND)
-    ;(glBlendFunc GL_ONE GL_ONE)
-    (pset! drawbuffers_ptr 0 GL_COLOR_ATTACHMENT0)
+(bind-func preview_texture2D:[void,Texture]*
+  (lambda (tex:Texture)
+    (glClampColor GL_CLAMP_READ_COLOR 0:i32)
     (glClearColor 0.0 0.0 0.0 1.0)
-    (glDisable GL_PROGRAM_POINT_SIZE)
-    ;(glPointSize 10.0)
+    (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+    (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+    (glUseProgram screen_prog)
+    (glBindVertexArray (VAO_id screen_vao))
+    (glBindTexture GL_TEXTURE_2D tex)
+    (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+    (glfwPollEvents)
+    (glfwSwapBuffers window)
+    void))
+
+
+
+
+
+;;;;; Creating textures to represent boundary conditions ;;;;;
+(bind-val ball2D_prog ShaderProgram)
+($ (set! ball2D_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/ball_2D.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/ball_2D.frag"))))
+
+
+(bind-func render_ball_2D_colorattachment_slot:[void,Texture,float,float,float,float,i32,i32,i32]*
+  (let ((colour_attachment_index:GLenum* (alloc))
+        (cxLoc (glGetUniformLocation ball2D_prog "cx"))
+        (cyLoc (glGetUniformLocation ball2D_prog "cy"))
+        (rLoc (glGetUniformLocation ball2D_prog "r"))
+        (valueLoc (glGetUniformLocation ball2D_prog "value"))
+        (channelLoc (glGetUniformLocation ball2D_prog "channel")))
+    (lambda (tex:Texture x:float y:float r:float value:float channel:i32 attachment:i32 slot:i32)
+      (pset! colour_attachment_index 0 (+ GL_COLOR_ATTACHMENT0 attachment))
+      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      (glClearColor 0.0 0.0 1.0 1.0)
+      (FBO_load_texture_to_colour_attachment_at_slot acoustics_fbo tex attachment slot)
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id acoustics_fbo))
+      (glDrawBuffers 1 colour_attachment_index)
+      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      (glUseProgram ball2D_prog)
+      (glUniform1f cxLoc x)
+      (glUniform1f cyLoc y)
+      (glUniform1f rLoc r)
+      (glUniform1f valueLoc value)
+      (glUniform1i channelLoc channel)
+      (glBindVertexArray (VAO_id acoustics_vao))
+      (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+      void)))
+              
+
+($ (render_ball_2D_colorattachment_slot read_tex (/ width 2.0) (/ height 2.0)  10.0:float 0.75:float 0:i32 1:i32 0:i32))
+($ (preview_texture2D render_tex))    
+    
+;;;;;;;;;; animation ;;;;;;;;;;
+(bind-func draw_frame:[void]*
+  (let ((colour_attachment_index:GLenum* (alloc))
+        (dtauLoc (glGetUniformLocation acoustics_prog "dtau"))
+        (mppLoc (glGetUniformLocation acoustics_prog "mpp"))
+        (rate:float 1.0))
+    (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
+    (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+    (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
     (lambda ()
-      ;(set! ct (modulo (+ ct rate) 1.0))
-      (glUseProgram grid_prog)
-      (glUniform1i accumulatorLoc 0)
+      (glClearColor 0.0 0.0 0.0 1.0)
+      ;(glDisable GL_PROGRAM_POINT_SIZE)
 
-      ;; The shaders take input from the previous pass via a second framebuffer
-      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id fbo2))
+      ;; We will render into the first colour attachment of our acoustics framebuffer
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id acoustics_fbo))
+      (glDrawBuffers 1 colour_attachment_index)
+      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      ;; and this rendering will sample from our read_tex texture
       (glActiveTexture GL_TEXTURE0)
-      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo2))
-      (glReadBuffer GL_COLOR_ATTACHMENT0)
-      
-      ;; Bind the compute buffer (so rendering will be into its texture attachment)
-      (glBindFramebuffer GL_DRAW_FRAMEBUFFER  (FBO_id fbo1))
-      (glActiveTexture GL_TEXTURE0)
-      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo1))
-      (glDrawBuffers 1 drawbuffers_ptr)
-
-      ;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
-      
-      
-      ;(glUniform1f timeloc (convert ct))
-      ;(glUniform1f screenWidthLoc (convert width))
-      ;(glUniform1f screenHeightLoc (convert height))
-      (glPointSize (/ height (i64tof (* 1 num_y))))
-      (glBindVertexArray (VAO_id grid_vao))
-      (glDrawArrays GL_POINTS 0 (i64toi32 grid_num))
-      ;(VAO_bind_and_draw_arrays grid_vao GL_POINTS 0 (i64toi32 grid_num))
-
-      ;;;;;;; Preview the computed texture on screen ;;;;;;;
-      ;; Bind the default buffer (which means rendering will be to screen)
-      (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
-      ;; clear the default framebuffer's colour and depth buffers
-      ;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
-      ;; our post-processing shader for the screen-space quad
-      (glUseProgram screen_prog)
-      ;; bind the screen quad's VAO
-      (glBindVertexArray (VAO_id screen_vao))
-      ;; activate the first texture slot and put texture from previous pass in it
-      (glActiveTexture GL_TEXTURE0)
-      (glBindTexture GL_TEXTURE_2D (FBO_color_texture fbo1))
-      ;; draw the quad
+      (glBindTexture GL_TEXTURE_2D read_tex)
+      (glUseProgram acoustics_prog)
+      (let ((dt:float (* FRAMEDURATION rate)))
+        (glUniform1f dtauLoc (convert (* dt c))))
+      (glUniform1f mppLoc metres_per_pixel)
+      ;; ;(glPointSize (/ height (i64tof (* 2 num_y))))
+      ;; ;(glPointSize 1.5)
+      (glBindVertexArray (VAO_id acoustics_vao))
       (glDrawArrays GL_TRIANGLE_STRIP 0 4)
 
-      ;; and finally store the output of this pass for use next pass
-      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id fbo1))
-      (glReadBuffer GL_COLOR_ATTACHMENT0)
-      (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id fbo2))
-      (glActiveTexture GL_TEXTURE0)
-      (glDrawBuffers 1 drawbuffers_ptr)
+      ;; ;; Rebind the default buffer, which also unbinds the compute framebuffer
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+
+      ;; ;; Copy the rendered texture (render_tex) into the read texture (read_tex)
+      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
+      ;(glBindTexture GL_TEXTURE_2D accumulator_tex)
+      ;(glActiveTexture GL_TEXTURE6)
+      (glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA 0 0 w h 0)
       
-      ;; (glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA 0 0 (ftoi32 width) (ftoi32 height) 0)
-      
+    ;;;;;;; Preview the computed texture on screen ;;;;;;;
+    ;; clear the default framebuffer's colour and depth buffers
+      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+    ;; our post-processing shader for the screen-space quad
+      (glUseProgram screen_prog)
+    ;; bind the screen quad's VAO
+      (glBindVertexArray (VAO_id screen_vao))
+    ;; bind the chosen texture to display
+      ;;(glBindTexture GL_TEXTURE_2D (FBO_color_texture acoustics_fbo))
+      (glBindTexture GL_TEXTURE_2D read_tex)
+    ;; draw the quad
+      (glDrawArrays GL_TRIANGLE_STRIP 0 4)
       void)))
+
+
+
+(bind-func poll_keyboard
+  (lambda (window)
+      (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_ENTER))
+          (render_ball_2D_colorattachment_slot read_tex (/ width 2.0) (/ height 2.0)  10.0:float 1.0:float 2:i32 1:i32 0:i32))
+      void))
+
 
 (bind-func draw_loop
   (let ((go:bool #t) (initialised:bool #f))
@@ -261,10 +346,12 @@
         (draw_frame)
         (glfwPollEvents)
         (glfwSwapBuffers window)
+        (poll_keyboard window)
         (let ((next_time (+ time (convert FRAMEDELTA))))
           (callback next_time draw_loop next_time)
           void))
        (else void)))))
+
 
 (bind-func run_graphics:[void,bool]*
   (lambda (flag:bool)
@@ -286,7 +373,7 @@
       (draw_loop.go:bool #f)
       void))))
 
-(frame_rate 2.0)
+(frame_rate 60.0)
 ($ (run_graphics #t))
 
 (define *xtmlib-ybot_acoustics-loaded* #t)
