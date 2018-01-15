@@ -71,12 +71,16 @@ void main() {
   //float x = gl_FragCoord.x - 0.5;
   //float y = gl_FragCoord.y - 0.5;
   float x = gl_PointCoord.x;
-  float y = 1.0 - gl_PointCoord.y;
+  float y = gl_PointCoord.y;
   ivec2 sz = textureSize(accumulator,0);
   float dx = 1.0 / float(sz.x);
   float dy = 1.0 / float(sz.y);
-  float Dx = Lm * dx;
-  float Dy = Lm * dy;
+  //float Dx = Lm * dx;
+  //float Dy = Lm * dy;
+  //float dx = 0.01;
+  //float dy = 0.01;
+  float Dx = 0.01;
+  float Dy = 0.01;
   
   // Sample the soundfield at this point, and the 4 nearest neighbors up/down/left/right
   vec4 soundfield = texture (accumulator, vec2(x, y)).rgba;
@@ -144,9 +148,10 @@ void main() {
   vec2 v = soundfield.rg + dv;
   float p = soundfield.b + dp;
   //frag_colour = vec4(1.0,1.0,1.0,1.0);
-  
-  frag_colour = vec4(v,p,1.0);                              
-  //frag_colour = vec4(v,p,1.0);
+
+  //frag_colour = sf_right;
+  //frag_colour = vec4(dv,dp,1.0);                              
+  frag_colour = vec4(v,p,1.0);
 
   // float spill_x = abs(fract(x-0.5));
   // float spill_y = abs(fract(y-0.5));
