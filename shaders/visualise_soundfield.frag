@@ -28,7 +28,7 @@ vec3 HyperbolicRGB(vec3 v){
 }
 
 void main () {
-  vec3 colour = texture (tex, vec2(gl_PointCoord.x, 1.0 - gl_PointCoord.y)).rgb;
+  vec3 colour = texture (tex, gl_PointCoord).rgb;
   frag_colour = vec4(HyperbolicRGB(colour),1.0);
   //frag_colour = vec4 (colour.b,0.0,0.0,1.0);
 }

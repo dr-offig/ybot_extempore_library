@@ -5,7 +5,8 @@ uniform sampler2D tex;
 out vec4 frag_colour;
 
 vec3 orderOfMagnitude(vec3 a) {
-  float b = sqrt(a.r * a.r + a.g * a.g + a.b * a.b);
+  //float b = sqrt(a.r * a.r + a.g * a.g + a.b * a.b);
+  float b = a.b;
   vec3 mag = vec3(0.0, 0.0, 0.0);
   if (b > 0.0) {
     float c = log2(b);

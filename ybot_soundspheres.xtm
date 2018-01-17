@@ -1,0 +1,737 @@
+;; Finite Volume Method for numerically solving the acoustic wave equations
+(sys:load-preload-check 'ybot_soundspheres)
+(define *xtmlib-ybot_soundspheres-loaded* #f)
+
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/external/gl/gl-objects.xtm")
+ (sys:load "libs/external/glfw3.xtm"))
+
+;; this function from gl-objects is over-ridden here to suppress logging output
+(bind-func VBO_create
+  (lambda (buf:float* buflen)
+    (let ((vbo:VBO* (halloc))
+          (id:GLuint* (salloc)))
+      (glGenBuffers 1 id)
+      (gl_print_error "Error creating VBO")
+      (tfill! vbo
+              (pref id 0)
+              GL_FLOAT
+              (* buflen 4) ;; sizeof(float)
+              (cast buf GLvoid*))
+      (glBindBuffer GL_ARRAY_BUFFER (VBO_id vbo))
+      (glBufferData GL_ARRAY_BUFFER (VBO_size vbo) (VBO_data vbo) GL_STREAM_DRAW)
+      (gl_print_error "Error setting VBO data")
+      vbo)))
+
+(bind-val L i32 1000)
+;; this actually creates the window
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_fullscreen_interaction_window)))
+(bind-val window GLFWwindow*
+  (begin
+    (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+    (glfw_init_and_create_interaction_window L L)))
+
+
+;; Once the window is created we can query its properties
+(bind-val pixel_ratio float (glfw_get_pixel_ratio window))
+(bind-val width float (glfw_get_window_width window))
+(bind-val height float (glfw_get_window_height window))
+(bind-val w GLuint (ftoi32 width))
+(bind-val h GLuint (ftoi32 height))
+(bind-val ar float (/ height width))
+(bind-val cx float (/ width 2.0:float))
+(bind-val cy float (/ height 2.0:float))
+
+
+;; this is the video frame-rate
+(bind-val FRAMERATE float 60.)
+(bind-val FRAMEDURATION float (/ 1. FRAMERATE))
+(bind-val FRAMEDELTA float (* SAMPLERATE (/ 1. FRAMERATE)))
+(bind-func frame_rate:[float,float]*
+  (lambda (rate)
+    (set! FRAMERATE rate)
+    (set! FRAMEDURATION (/ 1. FRAMERATE))
+    (set! FRAMEDELTA (* SAMPLERATE (/ 1. FRAMERATE)))
+    rate))
+
+;(frame_rate 2.0)
+
+
+;;;;;;;;; Texture management ;;;;;;;;
+(bind-func texture1D_bind_data
+  (lambda (tex:Texture data:float* loop:bool size:i32 slot:i32)
+    (let ((slot_id:GLenum (+ slot GL_TEXTURE0)))
+      (glActiveTexture slot_id)
+      (glBindTexture GL_TEXTURE_1D tex)
+      (glTexImage1D GL_TEXTURE_1D 0 GL_RGBA32F size 0 GL_RGBA GL_FLOAT (convert data))
+      (if #t
+        (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_WRAP_S GL_REPEAT)
+        (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_WRAP_S GL_CLAMP_TO_BORDER))
+      (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_MIN_FILTER GL_LINEAR)
+      (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_MAG_FILTER GL_LINEAR)
+      (gl_print_error "error in texture1D_bind_image_to_slot")
+      #t)))
+
+
+;;;;;;;;;;;;; Each vertex is a soundsphere ;;;;;;;;;
+(bind-val acoustics_vert_data float*)
+(bind-val acoustics_vao VAO*)
+(bind-val acoustics_vbo VBO*)
+(bind-val acoustics_prog ShaderProgram)
+(bind-val acoustics_fbo FBO* (FBO_create))
+(bind-val c float 343.0)
+;; (bind-val metres_per_pixel float 0.001)
+(bind-val Lm float 1.0)
+;($ (set! Lm 100.0:float))
+
+(bind-func fnow:[float]*
+  (lambda ()
+    (/ (i64tof (now)) (/ SRf 1.0:float))))
+
+;; (bind-func dnow:[double]*
+;;   (lambda ()
+;;     (/ (i64tod (now)) (/ SRd 1000.0))))
+
+(fnow)
+
+
+;; SignalSource type:  1D texture (signal), duration (ms), starttime (ms), loop?, x, y, radius
+(bind-type SignalSource <Texture,float,float,bool,float,float,float,float> (constructor? . #f) (printer? . #f))
+(bind-func SignalSource:[SignalSource*,Texture,float,float,bool,float,float,float]*
+  (lambda (tex duration starttime loop x y r)
+    (let ((source:SignalSource* (alloc)))
+      (tfill! source tex duration starttime loop x y r)
+      source)))
+
+(bind-func SignalSource_h:[SignalSource*,Texture,float,float,bool,float,float,float]*
+  (lambda (tex duration starttime loop x y r)
+    (let ((source:SignalSource* (halloc)))
+      (tfill! source tex duration starttime loop x y r)
+      source)))
+
+
+(bind-func  signal:[Texture,SignalSource*]* (lambda (source) (tref source 0)))
+(bind-func  signal:[Texture,SignalSource*,Texture]* (lambda (source value) (tset! source 0 value)))
+(bind-func  duration:[float,SignalSource*]* (lambda (source) (tref source 1)))
+(bind-func  duration:[float,SignalSource*,float]* (lambda (source value) (tset! source 1 value)))
+(bind-func  starttime:[float,SignalSource*]* (lambda (source) (tref source 2)))
+(bind-func  starttime:[float,SignalSource*,float]* (lambda (source value) (tset! source 2 value)))
+(bind-func  loop:[bool,SignalSource*]* (lambda (source) (tref source 3)))
+(bind-func  loop:[bool,SignalSource*,bool]* (lambda (source value) (tset! source 3 value)))
+(bind-func  position_x:[float,SignalSource*]* (lambda (source) (tref source 4)))
+(bind-func  position_x:[float,SignalSource*,float]* (lambda (source value) (tset! source 4 value)))
+(bind-func  position_y:[float,SignalSource*]* (lambda (source) (tref source 5)))
+(bind-func  position_y:[float,SignalSource*,float]* (lambda (source value) (tset! source 5 value)))
+(bind-func  radius:[float,SignalSource*]* (lambda (source) (tref source 6)))
+(bind-func  radius:[float,SignalSource*,float]* (lambda (source value) (tset! source 6 value)))
+
+(bind-func restart:[float,SignalSource*]*
+  (lambda (src)
+    (starttime src (fnow))))
+
+(bind-val pi float 3.14159)
+(bind-val twopi float 6.283185)
+(bind-func texture1D_bind_sinewave:[bool,Texture,float,float,float,i64,i32]*
+  (lambda (tex:Texture freq:float amp:float phase:float n:i64 slot:i32)
+    (let ((data:float* (alloc (* 4 n))) (i:i64 0) (cc:i64 0)
+          (d:float (/ 1.0:float (i64tof n))))
+      (dotimes (i n)
+        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
+        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
+        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
+        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1)))
+      (texture1D_bind_data tex data #t (i64toi32 n) slot)
+      #t)))
+        
+;;;;; We only need a limited number of signal generators (they can be shared by many point sources)
+(bind-val signal_length i64 1024)
+
+(bind-val signal1 Texture (Texture_create))
+($ (texture1D_bind_sinewave signal1 100.0 1.0 0.0 signal_length 1))
+
+(bind-val signal2 Texture (Texture_create))
+($ (texture1D_bind_sinewave signal2 100.0 1.0 0.5 signal_length 2))
+
+
+
+;;;;;; Now we set up our signal sources
+(bind-val sources |2048,SignalSource*|)
+(bind-val num_sources i64 1)
+
+(bind-func single_oscillator:[void,float,float,float,float,float,float,i64]*
+  (lambda (x y r freq amp phase n)
+    (let ((dur:float (/ 1.0:float freq)))
+      (texture1D_bind_sinewave signal1 freq amp phase n 1)
+      (aset! sources 0 (SignalSource_h signal1 dur (fnow) #t x y r))
+      (set! num_sources 1)
+      void)))
+
+($ (single_oscillator 500.0 500.0 10.0 1.0 1.0 0.0 signal_length))
+
+(bind-func initialise_acoustics_shaders:[void]*
+  (lambda ()
+    (set! acoustics_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.frag")))
+    (let ((tmp:float* (alloc (* 3 num_sources))) (i:i64 0) (cc:i64 0))
+      (dotimes (i num_sources)
+        (let ((source:SignalSource* (aref sources i)))
+          (pset! tmp cc (- (/ (position_x source) (i32tof L)) 0.5:float)) (set! cc (+ cc 1))
+          (pset! tmp cc (- (/ (position_y source) (i32tof L)) 0.5:float)) (set! cc (+ cc 1))
+          (pset! tmp cc 0.0) (set! cc (+ cc 1))))
+      (set! acoustics_vbo (VBO_create tmp (* 3 num_sources)))
+      (set! acoustics_vao (VAO_create))
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 3 0) ;; normalised device coordinates (x,y,z) origin at centre
+      ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
+      ;(texture_bind_data_using_slot render_tex null L L 4 render_slot)
+      ;(FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
+        ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
+    void)))
+
+
+(initialise_acoustics_shaders)
+
+;; (bind-func testn
+;;   (lambda (n:i64)
+;;     (let ((data:float* (convert (VBO_data acoustics_vbo))))
+;;       (println (pref data n))
+;;       (pref data n))))
+          
+
+;; (bind-func initialise_acoustics_shaders:[void,SignalSource*,i64]*
+;;   (lambda (sources positions num)
+;;     (set! acoustics_prog
+;;          (ShaderProgram_create
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.vert")
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.frag")))
+;;     (let ((tmp:float* (salloc (* 3 num)))
+;;       (pfill! tmp
+;;               ;; x     y    z           tex_coord
+;;               -1.0   -1.  0.0           0.     0.
+;;               -1.0    1.  0.0           0.     1.
+;;                1.0   -1.  0.0           1.     0.
+;;                1.0    1.  0.0           1.     1.
+;;                )
+;;     (set! acoustics_vbo (VBO_create tmp 20))
+;;     (set! acoustics_vao (VAO_create))
+;;     (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 5 0) ;; normalised device coordinates (x,y) origin at centre
+;;     (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 5 3) ;; texture coordinate (x,y) origin at bottom-left
+;;     (Texture_bind_image_to_slot read_tex "/Users/ybot/Documents/code/sketch/extempriments/soundfield.png" 0))
+;;     (FBO_load_texture_to_colour_attachment_at_slot acoustics_fbo render_tex 0 1)
+;;         ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
+;;     void)))
+
+
+
+
+
+
+;; ;;;;;;;; RGBA colour utilities ;;;;;;;
+;; (bind-type RGBAF32 <float,float,float,float> (constructor? . #f) (printer? . #f))
+;; (bind-func RGBAF32:[RGBAF32*,float,float,float,float]*
+;;   (lambda (red green blue alpha)
+;;     (let ((output:RGBAF32* (alloc)))
+;;       (tfill! output red green blue alpha)
+;;       output)))
+
+;; (bind-func red:[GLfloat,RGBAF32*]* (lambda (colour) (tref colour 0)))
+;; (bind-func red:[GLfloat,RGBAF32*,GLfloat]* (lambda (colour value) (tset! colour 0 value)))
+;; (bind-func green:[GLfloat,RGBAF32*]* (lambda (colour) (tref colour 1)))
+;; (bind-func green:[GLfloat,RGBAF32*,GLfloat]* (lambda (colour value) (tset! colour 1 value)))
+;; (bind-func blue:[GLfloat,RGBAF32*]* (lambda (colour) (tref colour 2)))
+;; (bind-func blue:[GLfloat,RGBAF32*,GLfloat]* (lambda (colour value) (tset! colour 2 value)))
+;; (bind-func alpha:[GLfloat,RGBAF32*]* (lambda (colour) (tref colour 3)))
+;; (bind-func alpha:[GLfloat,RGBAF32*,GLfloat]* (lambda (colour value) (tset! colour 3 value)))
+
+;; (bind-func print:[void,RGBAF32*]*
+;;   (lambda (colour)
+;;     (println "[ R:" (red colour) " G:" (green colour) " B:" (blue colour) " A:" (alpha colour) " ]")
+;;     void))
+
+
+;; ;;;;;;;;; Procedural texture data generation ;;;;;;;;
+;; (bind-alias PixelPainter [RGBAF32*,i32,i32]*)
+;; (bind-func procedural_texture_data:[GLfloat*,PixelPainter,i32,i32]*
+;;   (lambda (proc:[RGBAF32*,i32,i32]* tw:i32 th:i32)
+;;     (let* ((data:GLfloat* (zalloc (* 4 tw th))) (i:i32 0) (j:i32 0) (cc:i32 0))
+;;       (dotimes (i tw)
+;;         (dotimes (j th)
+;;           (let ((rgba:RGBAF32* (proc i j)))
+;;             (pset! data cc (red rgba)) (set! cc (+ cc 1))
+;;             (pset! data cc (green rgba)) (set! cc (+ cc 1))
+;;             (pset! data cc (blue rgba)) (set! cc (+ cc 1))
+;;             (pset! data cc (alpha rgba)) (set! cc (+ cc 1)))))
+;;       data)))
+
+;; (bind-func circular_impulse_c:[PixelPainter,i32,GLfloat,GLfloat,GLfloat,GLfloat]*
+;;   (lambda (radius:i32 red:GLfloat green:GLfloat blue:GLfloat alpha:GLfloat)
+;;     (lambda (x:i32 y:i32)
+;;       (cond
+;;        ((< (sqrt (i32tof (+ (* x x) (* y y)))) (i32tof radius))
+;;         (RGBAF32 red green blue alpha))
+;;        (else
+;;         (RGBAF32 0.0 0.0 0.0 1.0))))))
+
+
+;;;;;;;;; Texture management ;;;;;;;;
+;; (bind-func texture_bind_data_using_slot
+;;   (lambda (tex:Texture data:float* width height chan:i32 slot:i32)
+;;     (let ((slot_id:GLenum (+ slot GL_TEXTURE0))
+;;            (format (cond ((= chan 1) GL_R32F)
+;;                         ((= chan 3) GL_RGB32F)
+;;                         ((= chan 4) GL_RGBA32F)
+;;                         (else 0:i32))))
+;;           (cond
+;;            ((= format 0) (println "Error: only chan must be 1, 3 or 4.") #f)
+;;            (else
+;;             (glActiveTexture slot_id)
+;;             (glBindTexture GL_TEXTURE_2D tex)
+;;             (glTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F width height 0 GL_RGBA GL_FLOAT (convert data))
+;;             ;; set some parameters
+;;             (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_S GL_CLAMP_TO_EDGE)
+;;             (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_T GL_CLAMP_TO_EDGE)
+;;             (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER GL_LINEAR)
+;;             (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER GL_LINEAR)
+;;             (gl_print_error "error in texture_bind_image_to_slot")
+;;             #t)))))
+                
+
+;; (bind-func texture_bind_image_using_slot
+;;   (lambda (tex:Texture filename:i8* slot:i32)
+;;     ;; seems to need to be set
+;;     (stbi_set_flip_vertically_on_load 1)
+;;     (let ((width_ptr:i32* (salloc))
+;;           (height_ptr:i32* (salloc))
+;;           (comp_ptr:i32* (salloc))
+;;           (slot_id:GLenum (+ slot GL_TEXTURE0))
+;;           (data (stbi_load filename width_ptr height_ptr comp_ptr 4)))
+;;       (cond
+;;        ((null? data) (println (stbi_failure_reason)) -1)
+;;        (else
+;;         (glActiveTexture slot_id)
+;;         (glBindTexture GL_TEXTURE_2D tex)
+;;         (glTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F (pref width_ptr 0) (pref height_ptr 0) 0 GL_RGBA GL_UNSIGNED_BYTE data)
+;;         (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_S GL_CLAMP_TO_EDGE)
+;;         (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_WRAP_T GL_CLAMP_TO_EDGE)
+;;         (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER GL_LINEAR)
+;;         (glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER GL_LINEAR)
+;;         (gl_print_error "couldn't Texture_bind_image")
+;;         (println "Loaded image of width:" (pref width_ptr 0) "and height" (pref height_ptr 0))
+;;         tex)))))
+
+
+;; (bind-func FBO_load_texture_to_colour_attachment_using_slot:[i32,FBO*,Texture,i32,i32]*
+;;   (lambda (fbo:FBO* tex:Texture attachment:i32 slot:i32)
+;;     (let ((attachment_id:GLenum (+ attachment GL_COLOR_ATTACHMENT0))
+;;           (slot_id:GLenum (+ slot GL_TEXTURE0)))
+;;       (cond
+;;        ((= (glIsTexture tex) GL_TRUE)
+;;         (glActiveTexture slot_id)
+;;         (glBindTexture GL_TEXTURE_2D tex)
+;;         (glBindFramebuffer GL_FRAMEBUFFER (FBO_id fbo))
+;;         (glFramebufferTexture2D GL_FRAMEBUFFER attachment_id GL_TEXTURE_2D tex 0)
+;;         (cond
+;;          ((= (glCheckFramebufferStatus GL_FRAMEBUFFER) GL_FRAMEBUFFER_COMPLETE)
+;;           ;; query the texture for its width and height
+;;           (let ((tw:i32* (salloc)) (th:i32* (salloc)))
+;;             (glGetTexLevelParameteriv GL_TEXTURE_2D 0 GL_TEXTURE_WIDTH tw)
+;;             (glGetTexLevelParameteriv GL_TEXTURE_2D 0 GL_TEXTURE_HEIGHT th)
+;;             ;; fill the FBO tuple with metadata
+;;             (tfill! fbo (FBO_id fbo) tex -1 (pref tw 0) (pref th 0)))
+;;             ;; unbind the frame buffer
+;;             (glBindFramebuffer GL_FRAMEBUFFER 0)
+;;             0:i32)
+;;          (else
+;;           (println "Error loading texture at slot " slot " into framebuffer attachment " attachment)
+;;           (gl_print_error "Error loading texture into framebuffer")
+;;           -2:i32)))
+;;        (else
+;;         (println "Error loading texture into framebuffer: texture " tex " needs to be initialised first")
+;;         (gl_print_error "Error loading texture into framebuffer")
+;;         -1:i32)))))
+
+
+;; (bind-func point_source_in_texture_using_slot:[bool,Texture,i32]*
+;;   (lambda (tex:Texture slot:i32)
+;;     (let* ((psp:PixelPainter (circular_impulse_c 10:i32 0.0:float 0.0:float 1.0:float 1.0:float))
+;;           (data:GLfloat* (procedural_texture_data psp L L)))
+;;       (texture_bind_data_using_slot tex data L L 4 slot))))
+
+
+;; Use different texture units for different textures
+;; (bind-val read_slot i32 0)
+;; (bind-val render_slot i32 1)
+;; (bind-val still_life_slot i32 2)
+
+
+;; ($ (texture_bind_data_using_slot read_tex null L L 4 read_slot))
+;; ;;($ (texture_bind_image_using_slot read_tex "/Users/ybot/Documents/code/sketch/extempriments/soundfield.png" read_slot))
+;; ;;($ (point_source_in_texture_using_slot centres_tex centres_slot))
+
+;; (bind-val render_tex Texture (Texture_create))
+;; ($ (texture_bind_data_using_slot render_tex null L L 4 render_slot))
+
+;; (bind-val still_life_tex Texture (Texture_create))
+;; ($ (texture_bind_image_using_slot still_life_tex "/Users/ybot/Documents/code/sketch/extempriments/gus.jpg" still_life_slot))
+
+
+
+
+;;;;;;;;;; Preview Shaders ;;;;;;;;;
+;; (bind-val screen_vert_data float*)
+;; (bind-val screen_vao VAO* (VAO_create_ss_quad))
+;; (bind-val screen_vbo VBO*)
+;; (bind-val screen_prog ShaderProgram)
+
+;; (bind-func initialise_screen_shaders
+;;   (lambda ()
+;;     (set! screen_prog
+;;          (ShaderProgram_create
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/visualise_soundfield.vert")
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/visualise_soundfield.frag")))
+;;     (let ((tmp:float* (salloc 16)))
+;;       (pfill! tmp
+;;               ;; x     y               tex_coord
+;;               -1.0   -1.              0.     0.
+;;               -1.0    1.              0.     1.
+;;                1.0   -1.              1.     0.
+;;                1.0    1.              1.     1.
+;;                )
+;;     (set! screen_vbo (VBO_create tmp 16))
+;;     (set! screen_vao (VAO_create))
+;;     (VAO_bind_attribute screen_vao screen_vbo 0 2 4 0) ;; normalised device coordinates (x,y) origin at centre
+;;     (VAO_bind_attribute screen_vao screen_vbo 1 2 4 2) ;; texture coordinate (x,y) origin at bottom-left
+;;     void)))
+
+
+;; (initialise_screen_shaders)
+
+;; (bind-func preview_texture2D:[void,Texture]*
+;;   (lambda (tex:Texture)
+;;     (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+;;     (glClearColor 0.0 0.0 0.0 1.0)
+;;     (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+;;     (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;     (glUseProgram screen_prog)
+;;     (glBindVertexArray (VAO_id screen_vao))
+;;     (glBindTexture GL_TEXTURE_2D tex)
+;;     (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+;;     (glfwPollEvents)
+;;     (glfwSwapBuffers window)
+;;     void))
+
+
+;;;;;;;;;;; Preview Sprite ;;;;;;;;;;;
+(bind-val screen_vert_data float*)
+(bind-val screen_vao VAO*)
+(bind-val screen_vbo VBO*)
+(bind-val screen_prog ShaderProgram)
+
+(bind-func initialise_screen_shaders
+  (lambda ()
+    (set! screen_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/sprite.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/sprite.frag")))
+    (let ((tmp:float* (salloc 3)))
+      (pfill! tmp 0.0 0.0 0.0)
+      (set! screen_vbo (VBO_create tmp 3))
+      (set! screen_vao (VAO_create))
+      (VAO_bind_attribute screen_vao screen_vbo 0 3 3 0) ;; normalised device coordinates (x,y,z) origin at centre
+      void)))
+
+
+(initialise_screen_shaders)
+
+
+;; (bind-func preview_texture2D_in_slot:[void,Texture,i32]*
+;;   (let ((textureLoc (glGetUniformLocation screen_prog "tex")))
+;;     (lambda (tex:Texture slot:i32)
+;;       (glPointParameteri GL_POINT_SPRITE_COORD_ORIGIN GL_LOWER_LEFT)
+;;       (glDisable GL_PROGRAM_POINT_SIZE)
+;;       (glPointSize (i32tof L))
+;;                                         ;(glClampColor GL_CLAMP_READ_COLOR 0:i32)
+;;       (glClearColor 0.0 0.0 0.0 1.0)
+;;       (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+;;       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;       (glUseProgram screen_prog)
+;;       (glBindVertexArray (VAO_id screen_vao))
+;;       (glActiveTexture (+ GL_TEXTURE0 slot))
+;;       (glBindTexture GL_TEXTURE_2D tex)
+;;       (glUniform1i textureLoc slot)
+;;       (glDrawArrays GL_POINTS 0 1)
+;;       (glfwPollEvents)
+;;       (glfwSwapBuffers window)
+;;     void)))
+
+;; ($ (preview_texture2D_in_slot still_life_tex still_life_slot))
+
+;; ;;;;; Creating textures to represent boundary conditions ;;;;;
+;; (bind-val still_life_vert_data float*)
+;; (bind-val still_life_vao VAO*)
+;; (bind-val still_life_vbo VBO*)
+;; (bind-val still_life_prog ShaderProgram)
+;; (bind-val still_life_fbo FBO* (FBO_create))
+
+;; (bind-func initialise_still_life_shaders
+;;   (lambda ()
+;;     (let ((tmp:float* (salloc 3)))
+;;       (pfill! tmp 0.0 0.0 1.0)
+;;       (set! still_life_vbo (VBO_create tmp 3))
+;;       (set! still_life_vao (VAO_create))
+;;       (VAO_bind_attribute still_life_vao still_life_vbo 0 3 3 0) ;; normalised device coordinates (x,y,z) origin at centre
+;;       (texture_bind_data_using_slot still_life_tex null L L 4 still_life_slot)
+;;       (FBO_load_texture_to_colour_attachment_using_slot still_life_fbo still_life_tex 0 still_life_slot)
+;;     void)))
+
+;; (initialise_still_life_shaders)
+;; ($ (println still_life_fbo))
+
+
+;; (bind-val ball2D_prog ShaderProgram)
+;; ($ (set! ball2D_prog
+;;          (ShaderProgram_create
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/ball_2D.vert")
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/ball_2D.frag"))))
+
+
+;; (bind-func render_ball_2D:[void,float,float,float,float,i32]*
+;;   (let ((colour_attachment_index:GLenum* (alloc))
+;;         (cxLoc (glGetUniformLocation ball2D_prog "cx"))
+;;         (cyLoc (glGetUniformLocation ball2D_prog "cy"))
+;;         (rLoc (glGetUniformLocation ball2D_prog "r"))
+;;         (valueLoc (glGetUniformLocation ball2D_prog "value"))
+;;         (channelLoc (glGetUniformLocation ball2D_prog "channel")))
+;;     (lambda (x:float y:float r:float value:float channel:i32)
+;;       (glPointParameteri GL_POINT_SPRITE_COORD_ORIGIN GL_LOWER_LEFT)
+;;       (glDisable GL_PROGRAM_POINT_SIZE)
+;;       (glPointSize (i32tof L))
+;;       (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
+;;       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+;;       (glClearColor 0.0 0.0 1.0 1.0)
+;;       (FBO_load_texture_to_colour_attachment_using_slot still_life_fbo still_life_tex 0 still_life_slot)
+;;       (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id still_life_fbo))
+;;       (glDrawBuffers 1 colour_attachment_index)
+;;       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;       (glUseProgram ball2D_prog)
+;;       (glUniform1f cxLoc x)
+;;       (glUniform1f cyLoc y)
+;;       (glUniform1f rLoc r)
+;;       (glUniform1f valueLoc value)
+;;       (glUniform1i channelLoc channel)
+;;       (glBindVertexArray (VAO_id still_life_vao))
+;;       (glDrawArrays GL_POINTS 0 1)
+;;       void)))
+              
+
+;; ($ (render_ball_2D (/ (i32tof L) 2.0) (/ (i32tof L) 2.0)  10.0:float 0.75:float 2:i32))
+;; ($ (preview_texture2D_in_slot still_life_tex still_life_slot))    
+
+
+;;;;;;;;;;;;;; Signal Driver ;;;;;;;;;;;;;
+;;;;; Creating textures to represent boundary conditions ;;;;;
+;; (bind-val signal_vert_data float*)
+;; (bind-val signal_vao VAO*)
+;; (bind-val signal_vbo VBO*)
+;; (bind-val signal_prog ShaderProgram)
+;; (bind-val signal_fbo FBO* (FBO_create))
+
+;; (bind-func initialise_signal_shaders
+;;   (lambda ()
+;;     (let ((tmp:float* (salloc 3)))
+;;       (pfill! tmp 0.0 0.0 1.0)
+;;       (set! still_life_vbo (VBO_create tmp 3))
+;;       (set! still_life_vao (VAO_create))
+;;       (VAO_bind_attribute still_life_vao still_life_vbo 0 3 3 0) ;; normalised device coordinates (x,y,z) origin at centre
+;;       (Texture_bind_data_to_slot still_life_tex null L L 4 still_life_slot)
+;;       (FBO_load_texture_to_colour_attachment_at_slot still_life_fbo still_life_tex 0 still_life_slot)
+;;     void)))
+
+;; (initialise_still_life_shaders)
+;; ($ (println still_life_fbo))
+
+
+
+;;;;;;;;;;;;;;;;; Acoustics computations in glsl shaders ;;;;;;;;;;;;;;;;;;;
+;; (bind-val acoustics_vert_data float*)
+;; (bind-val acoustics_vao VAO*)
+;; (bind-val acoustics_vbo VBO*)
+;; (bind-val acoustics_prog ShaderProgram)
+;; (bind-val acoustics_fbo FBO* (FBO_create))
+;; (bind-val c float 343.0)
+;; ;; (bind-val metres_per_pixel float 0.001)
+;; (bind-val Lm float 1.0)
+;($ (set! Lm 100.0:float))
+;; (bind-func initialise_acoustics_shaders
+;;   (lambda ()
+;;     (set! acoustics_prog
+;;          (ShaderProgram_create
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics_compute.vert")
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/acoustics_compute.frag")))
+;;     (let ((tmp:float* (salloc 20)))
+;;       (pfill! tmp
+;;               ;; x     y    z           tex_coord
+;;               -1.0   -1.  0.5           0.     0.
+;;               -1.0    1.  0.5           0.     1.
+;;                1.0   -1.  0.5           1.     0.
+;;                1.0    1.  0.5           1.     1.
+;;                )
+;;     (set! acoustics_vbo (VBO_create tmp 20))
+;;     (set! acoustics_vao (VAO_create))
+;;     (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 5 0) ;; normalised device coordinates (x,y) origin at centre
+;;     (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 5 3) ;; texture coordinate (x,y) origin at bottom-left
+;;     (Texture_bind_image_to_slot read_tex "/Users/ybot/Documents/code/sketch/extempriments/soundfield.png" 0))
+;;     (FBO_load_texture_to_colour_attachment_at_slot acoustics_fbo render_tex 0 1)
+;;         ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
+;;     void)))
+
+;; (bind-func initialise_acoustics_shaders
+;;   (lambda ()
+;;     (set! acoustics_prog
+;;          (ShaderProgram_create
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/flux.vert")
+;;           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/flux.frag")))
+;;     (let ((tmp:float* (salloc 3)))
+;;       (pfill! tmp 0.0 0.0 1.0)
+;;       (set! acoustics_vbo (VBO_create tmp 3))
+;;       (set! acoustics_vao (VAO_create))
+;;       (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 3 0) ;; normalised device coordinates (x,y) origin at centre
+;;       ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
+;;       ;(texture_bind_data_using_slot render_tex null L L 4 render_slot)
+;;       (FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
+;;         ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
+;;     void)))
+
+;; (initialise_acoustics_shaders)
+;; ($ (println acoustics_fbo))
+
+
+;;;;;;;;;; animation ;;;;;;;;;;
+(bind-func draw_frame:[void]*
+  (let ((colour_attachment_index:GLenum* (alloc))
+        (timeLoc (glGetUniformLocation acoustics_prog "time"))
+        (starttimeLoc (glGetUniformLocation acoustics_prog "starttime"))
+        (durLoc (glGetUniformLocation acoustics_prog "dur"))
+        (driverRadiusLoc (glGetUniformLocation acoustics_prog "driver_radius"))
+        (LmLoc (glGetUniformLocation acoustics_prog "Lm"))
+        (LLoc (glGetUniformLocation acoustics_prog "L"))
+        (signalLoc (glGetUniformLocation acoustics_prog "signal")))
+    (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
+    ;(glClampColor GL_CLAMP_READ_COLOR 0:i32)
+    (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+    (lambda ()
+      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      (glClearColor 0.0 0.0 0.0 1.0)
+      (glPointParameteri GL_POINT_SPRITE_COORD_ORIGIN GL_LOWER_LEFT)
+      (glDisable GL_PROGRAM_POINT_SIZE)
+
+      ;; We will render into the first colour attachment of our acoustics framebuffer
+      ;;(glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id acoustics_fbo))
+      ;;(glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
+      ;;(glDrawBuffers 1 colour_attachment_index)
+      (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      ;; and this rendering will sample from our signal texture
+      (let ((src:SignalSource* (aref sources 0)))
+        ;(println "t:" (- (fnow) (starttime src)) "Duration:" (duration src))
+        (glActiveTexture (+ GL_TEXTURE0 1))
+        (glBindTexture GL_TEXTURE_1D signal1)
+        (glUseProgram acoustics_prog)
+        (glUniform1f timeLoc (fnow))
+        (glUniform1f starttimeLoc (starttime src))
+        (glUniform1f durLoc (duration src))
+        (glUniform1f driverRadiusLoc (radius src))
+        (glUniform1f LmLoc Lm)
+        (glUniform1f LLoc (i32tof L))
+        (glUniform1i signalLoc 1)
+        ;; ;(glPointSize (/ height (i64tof (* 2 num_y))))
+        (glPointSize (i32tof L))
+        (glBindVertexArray (VAO_id acoustics_vao))
+        (glDrawArrays GL_POINTS 0 1))
+
+        ;; ;; Rebind the default buffer, which also unbinds the compute framebuffer
+      ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+
+      ;; ;; Copy the rendered texture (render_tex) into the read texture (read_tex)
+      ;(glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
+      ;(glBindTexture GL_TEXTURE_2D accumulator_tex)
+      ;(glActiveTexture GL_TEXTURE6)
+      ;(glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      ;(glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F 0 0 L L 0)
+      
+    ;;;;;;; Preview the computed texture on screen ;;;;;;;
+    ;; clear the default framebuffer's colour and depth buffers
+      ;(glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+    ;; our post-processing shader for the screen-space quad
+      ;(glUseProgram screen_prog)
+    ;; bind the screen quad's VAO
+      ;(glBindVertexArray (VAO_id screen_vao))
+    ;; bind the chosen texture to display
+      ;;(glBindTexture GL_TEXTURE_2D (FBO_color_texture acoustics_fbo))
+      ;(glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      ;(glActiveTexture (+ GL_TEXTURE0 read_slot))
+      ;(glBindTexture GL_TEXTURE_2D read_tex)
+      ;(glUniform1i screenTexLoc read_slot)
+      ;(glPointSize (i32tof L))
+    ;; draw the quad
+      ;(glDrawArrays GL_POINTS 0 1)
+      void)))
+
+
+
+(bind-func poll_keyboard
+  (lambda (window)
+    (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_ENTER))
+        (begin
+          (println "ENTER pressed")
+          (restart (aref sources 0))))
+      void))
+
+
+(bind-func draw_loop
+  (let ((go:bool #t) (initialised:bool #f))
+    (lambda (time:i64)
+      (cond
+       (go
+        (draw_frame)
+        (glfwPollEvents)
+        (glfwSwapBuffers window)
+        (poll_keyboard window)
+        (let ((next_time (+ time (convert FRAMEDELTA))))
+          (callback next_time draw_loop next_time)
+          void))
+       (else void)))))
+
+
+(bind-func run_graphics:[void,bool]*
+  (lambda (flag:bool)
+    (cond
+     (flag
+      (cond
+       ((draw_loop.go:bool)
+        (cond
+         ((draw_loop.initialised:bool)
+          void)
+         (else
+          (draw_loop.initialised:bool #t)
+          (draw_loop (now)))))
+       (else
+        (draw_loop.go:bool #t)
+        (draw_loop (now))
+        void)))
+     (else
+      (draw_loop.go:bool #f)
+      void))))
+
+(initialise_acoustics_shaders)
+(frame_rate 30.0)
+($ (run_graphics #t))
+
+(define *xtmlib-ybot_acoustics-loaded* #t)
