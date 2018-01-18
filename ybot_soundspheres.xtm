@@ -70,12 +70,25 @@
       (glActiveTexture slot_id)
       (glBindTexture GL_TEXTURE_1D tex)
       (glTexImage1D GL_TEXTURE_1D 0 GL_RGBA32F size 0 GL_RGBA GL_FLOAT (convert data))
-      (if #t
+      (if loop
         (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_WRAP_S GL_REPEAT)
         (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_WRAP_S GL_CLAMP_TO_BORDER))
       (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_MIN_FILTER GL_LINEAR)
       (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_MAG_FILTER GL_LINEAR)
-      (gl_print_error "error in texture1D_bind_image_to_slot")
+      (gl_print_error "error in texture1D_bind_data")
+      #t)))
+
+
+(bind-func texture1D_update_data
+  (lambda (tex:Texture data:float* loop:bool size:i32 slot:i32)
+    (let ((slot_id:GLenum (+ slot GL_TEXTURE0)))
+      (glActiveTexture slot_id)
+      (glBindTexture GL_TEXTURE_1D tex)
+      (glTexSubImage1D GL_TEXTURE_1D 0 0 size GL_RGBA GL_FLOAT (convert data))
+      (if loop
+        (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_WRAP_S GL_REPEAT)
+        (glTexParameteri GL_TEXTURE_1D GL_TEXTURE_WRAP_S GL_CLAMP_TO_BORDER))
+      (gl_print_error "error in texture1D_bind_data")
       #t)))
 
 
@@ -94,85 +107,157 @@
   (lambda ()
     (/ (i64tof (now)) (/ SRf 1.0:float))))
 
-;; (bind-func dnow:[double]*
-;;   (lambda ()
-;;     (/ (i64tod (now)) (/ SRd 1000.0))))
 
-(fnow)
+;;;;; Audio Signal data type - basically a fixed size wavetable, of arbitrary duration, in a particular slot
+;; the texture is a 1D texture containing audio sample values (all four components rgba are equal)
+(bind-val signal_length i64 1024)
+(bind-type Signal <Texture,float,i64> (constructor? . #f) (printer? . #f))
+(bind-func Signal:[Signal*,Texture,float,i64]*
+  (lambda (tex:Texture duration:float slot:i64)
+    (let ((output:Signal* (alloc)))
+      (tfill! output tex duration slot)
+      output)))
+(bind-func Signal_h:[Signal*,Texture,float,i64]*
+  (lambda (tex:Texture duration:float slot:i64)
+    (let ((output:Signal* (halloc)))
+      (tfill! output tex duration slot)
+      output)))
+(bind-func Signal_create:[Signal*,bool,i64,i64]*
+  (lambda (loop size slot)
+    (let ((tex:Texture (Texture_create))
+          (data:float* (halloc (* 4 size)))
+          (i:i64 0) (j:i64 0) (cc:i64 0))
+      (dotimes (i size)
+        (dotimes (j 4)
+          (pset! data cc 0.0:float) (set! cc (+ cc 1))))
+      (texture1D_bind_data tex data loop (i64toi32 size) (i64toi32 slot))
+      (Signal_h tex 1.0:float slot))))
+
+(bind-func tex:[Texture,Signal*]* (lambda (sig) (tref sig 0)))
+(bind-func tex:[Texture,Signal*,Texture]* (lambda (sig value) (tset! sig 0 value)))
+(bind-func duration:[float,Signal*]* (lambda (sig) (tref sig 1)))
+(bind-func duration:[float,Signal*,float]* (lambda (sig value) (tset! sig 1 value)))
+(bind-func slot:[i64,Signal*]* (lambda (sig) (tref sig 2)))
+(bind-func slot:[i64,Signal*,i64]* (lambda (sig value) (tset! sig 2 value)))
 
 
-;; SignalSource type:  1D texture (signal), duration (ms), starttime (ms), loop?, x, y, radius
-(bind-type SignalSource <Texture,float,float,bool,float,float,float,float> (constructor? . #f) (printer? . #f))
-(bind-func SignalSource:[SignalSource*,Texture,float,float,bool,float,float,float]*
-  (lambda (tex duration starttime loop x y r)
+;;;;; We only need a limited number of signal generators (they can be shared by many point sources)
+(bind-val signales Signal** 8)
+(bind-val num_signales i64 0)
+(bind-func create_signales
+  (lambda ()
+    (let ((i:i64 0))
+      (dotimes (i 8)
+        (pset! signales i (Signal_create #t signal_length (+ i 1))))
+      void)))
+(create_signales)
+
+($ (printf "%ld\n" (tref (pref signales 0) 2)))
+
+                                        ;(bind-val signal1 Texture (Texture_create))
+;($ (texture1D_bind_sinewave signal1 100.0 1.0 0.0 signal_length 1))
+
+;(bind-val signal2 Texture (Texture_create))
+;($ (texture1D_bind_sinewave signal2 100.0 1.0 0.5 signal_length 2))
+
+
+(bind-val pi float 3.14159)
+(bind-val twopi float 6.283185)
+(bind-func sinewave_in_signal:[bool,i64,float,float,float]*
+  (lambda (m:i64 freq:float amp:float phase:float)
+    (cond
+     ((< m 8)
+      (let* ((n:i64 signal_length)
+             (sig:Signal* (pref signales m))
+             (audio_tex:Texture (tex sig))
+             (sl:i64 (slot sig))
+             (data:float* (alloc (* 4 n)))
+             (i:i64 0) (cc:i64 0)
+             (d:float (/ 1.0:float (i64tof n))))
+        (dotimes (i n)
+          (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
+          (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
+          (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
+          (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1)))
+        (texture1D_update_data audio_tex data #t (i64toi32 n) (i64toi32 sl))
+        #t))
+     (else
+      (println "Cannot use signal slot" m "as there are only 8 slots")
+      #f))))
+        
+
+
+;; SignalSource type:  Signal, starttime (ms), loop?, x, y, radius
+(bind-type SignalSource <Signal*,float,bool,float,float,float,float> (constructor? . #f) (printer? . #f))
+(bind-func SignalSource:[SignalSource*,Signal*,float,bool,float,float,float]*
+  (lambda (sig starttime loop x y r)
     (let ((source:SignalSource* (alloc)))
-      (tfill! source tex duration starttime loop x y r)
+      (tfill! source sig starttime loop x y r)
       source)))
 
-(bind-func SignalSource_h:[SignalSource*,Texture,float,float,bool,float,float,float]*
-  (lambda (tex duration starttime loop x y r)
+(bind-func SignalSource_h:[SignalSource*,Signal*,float,bool,float,float,float]*
+  (lambda (sig starttime loop x y r)
     (let ((source:SignalSource* (halloc)))
-      (tfill! source tex duration starttime loop x y r)
+      (tfill! source sig starttime loop x y r)
       source)))
 
 
-(bind-func  signal:[Texture,SignalSource*]* (lambda (source) (tref source 0)))
-(bind-func  signal:[Texture,SignalSource*,Texture]* (lambda (source value) (tset! source 0 value)))
-(bind-func  duration:[float,SignalSource*]* (lambda (source) (tref source 1)))
-(bind-func  duration:[float,SignalSource*,float]* (lambda (source value) (tset! source 1 value)))
-(bind-func  starttime:[float,SignalSource*]* (lambda (source) (tref source 2)))
-(bind-func  starttime:[float,SignalSource*,float]* (lambda (source value) (tset! source 2 value)))
-(bind-func  loop:[bool,SignalSource*]* (lambda (source) (tref source 3)))
-(bind-func  loop:[bool,SignalSource*,bool]* (lambda (source value) (tset! source 3 value)))
-(bind-func  position_x:[float,SignalSource*]* (lambda (source) (tref source 4)))
-(bind-func  position_x:[float,SignalSource*,float]* (lambda (source value) (tset! source 4 value)))
-(bind-func  position_y:[float,SignalSource*]* (lambda (source) (tref source 5)))
-(bind-func  position_y:[float,SignalSource*,float]* (lambda (source value) (tset! source 5 value)))
-(bind-func  radius:[float,SignalSource*]* (lambda (source) (tref source 6)))
-(bind-func  radius:[float,SignalSource*,float]* (lambda (source value) (tset! source 6 value)))
+(bind-func  signal:[Signal*,SignalSource*]* (lambda (source) (tref source 0)))
+(bind-func  signal:[Signal*,SignalSource*,Signal*]* (lambda (source value) (tset! source 0 value)))
+;(bind-func  duration:[float,SignalSource*]* (lambda (source) (tref source 1)))
+;(bind-func  duration:[float,SignalSource*,float]* (lambda (source value) (tset! source 1 value)))
+(bind-func  starttime:[float,SignalSource*]* (lambda (source) (tref source 1)))
+(bind-func  starttime:[float,SignalSource*,float]* (lambda (source value) (tset! source 1 value)))
+(bind-func  loop:[bool,SignalSource*]* (lambda (source) (tref source 2)))
+(bind-func  loop:[bool,SignalSource*,bool]* (lambda (source value) (tset! source 2 value)))
+(bind-func  position_x:[float,SignalSource*]* (lambda (source) (tref source 3)))
+(bind-func  position_x:[float,SignalSource*,float]* (lambda (source value) (tset! source 3 value)))
+(bind-func  position_y:[float,SignalSource*]* (lambda (source) (tref source 4)))
+(bind-func  position_y:[float,SignalSource*,float]* (lambda (source value) (tset! source 4 value)))
+(bind-func  radius:[float,SignalSource*]* (lambda (source) (tref source 5)))
+(bind-func  radius:[float,SignalSource*,float]* (lambda (source value) (tset! source 5 value)))
 
 (bind-func restart:[float,SignalSource*]*
   (lambda (src)
     (starttime src (fnow))))
 
-(bind-val pi float 3.14159)
-(bind-val twopi float 6.283185)
-(bind-func texture1D_bind_sinewave:[bool,Texture,float,float,float,i64,i32]*
-  (lambda (tex:Texture freq:float amp:float phase:float n:i64 slot:i32)
-    (let ((data:float* (alloc (* 4 n))) (i:i64 0) (cc:i64 0)
-          (d:float (/ 1.0:float (i64tof n))))
-      (dotimes (i n)
-        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
-        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
-        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1))
-        (pset! data cc (* amp (sin (* twopi (+ phase (* (/ (i64tof i) (i64tof n)) freq)))))) (set! cc (+ cc 1)))
-      (texture1D_bind_data tex data #t (i64toi32 n) slot)
-      #t)))
-        
-;;;;; We only need a limited number of signal generators (they can be shared by many point sources)
-(bind-val signal_length i64 1024)
-
-(bind-val signal1 Texture (Texture_create))
-($ (texture1D_bind_sinewave signal1 100.0 1.0 0.0 signal_length 1))
-
-(bind-val signal2 Texture (Texture_create))
-($ (texture1D_bind_sinewave signal2 100.0 1.0 0.5 signal_length 2))
-
 
 
 ;;;;;; Now we set up our signal sources
-(bind-val sources |2048,SignalSource*|)
-(bind-val num_sources i64 1)
+(bind-val sources SignalSource** 2048)
+(bind-val num_sources i64 0)
 
-(bind-func single_oscillator:[void,float,float,float,float,float,float,i64]*
-  (lambda (x y r freq amp phase n)
+;; (bind-func single_oscillator:[void,float,float,float,float,float,float,i64]*
+;;   (lambda (x y r freq amp phase n)
+;;     (let ((dur:float (/ 1.0:float freq)))
+;;       (texture1D_bind_sinewave (aref signals 0) freq amp phase n 1)
+;;       (set! num_signals 1)
+;;       (aset! sources 0 (SignalSource_h (aref signals 0) dur (fnow) #t x y r))
+;;       (set! num_sources 1)
+;;       void)))
+
+;($ (single_oscillator 100.0 100.0 20.0 1.0 1.0 0.0 signal_length))
+
+(bind-func add_sinewave_signal:[i64,float,float,float]*
+  (lambda (freq amp phase)
     (let ((dur:float (/ 1.0:float freq)))
-      (texture1D_bind_sinewave signal1 freq amp phase n 1)
-      (aset! sources 0 (SignalSource_h signal1 dur (fnow) #t x y r))
-      (set! num_sources 1)
-      void)))
+      (sinewave_in_signal num_signales freq amp phase)
+      (duration (pref signales num_signales) dur)
+      (set! num_signales (+ num_signales 1))
+      num_signales)))
 
-($ (single_oscillator 500.0 500.0 10.0 1.0 1.0 0.0 signal_length))
+
+(bind-func add_point_source_to_signal:[void,i64,float,float,float]*
+  (lambda (m:i64 x:float y:float r:float)
+    (pset! sources num_sources (SignalSource_h (pref signales m) (fnow) #t x y r))
+    (set! num_sources (+ num_sources 1))
+    void))
+
+
+;;;;;;;;;
+(add_sinewave_signal 1.0 1.0 0.0)
+(add_point_source_to_signal 0 200.0 200.0 20.0)
+(add_point_source_to_signal 0 800.0 800.0 20.0)
 
 (bind-func initialise_acoustics_shaders:[void]*
   (lambda ()
@@ -180,15 +265,26 @@
          (ShaderProgram_create
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.vert")
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.frag")))
-    (let ((tmp:float* (alloc (* 3 num_sources))) (i:i64 0) (cc:i64 0))
+    (let ((tmp:float* (alloc (* 7 num_sources))) (i:i64 0) (cc:i64 0))
       (dotimes (i num_sources)
-        (let ((source:SignalSource* (aref sources i)))
+        (let* ((source:SignalSource* (pref sources i))
+               (sig:Signal* (signal source))
+               (sl:i32 (i64toi32 (slot sig)))
+               (stt:float (starttime source))
+               (dur:float (duration sig))
+               (rad:float (radius source)))
           (pset! tmp cc (- (/ (position_x source) (i32tof L)) 0.5:float)) (set! cc (+ cc 1))
           (pset! tmp cc (- (/ (position_y source) (i32tof L)) 0.5:float)) (set! cc (+ cc 1))
-          (pset! tmp cc 0.0) (set! cc (+ cc 1))))
-      (set! acoustics_vbo (VBO_create tmp (* 3 num_sources)))
+          (pset! tmp cc 0.0) (set! cc (+ cc 1))
+          (pset! tmp cc (i32tof sl)) (set! cc (+ cc 1))
+          (pset! tmp cc stt) (set! cc (+ cc 1))
+          (pset! tmp cc dur) (set! cc (+ cc 1))
+          (pset! tmp cc rad) (set! cc (+ cc 1))))
+          
+      (set! acoustics_vbo (VBO_create tmp (* 7 num_sources)))
       (set! acoustics_vao (VAO_create))
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 3 0) ;; normalised device coordinates (x,y,z) origin at centre
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 7 0)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 4 7 3)
       ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
       ;(texture_bind_data_using_slot render_tex null L L 4 render_slot)
       ;(FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
@@ -615,20 +711,29 @@
 
 ;;;;;;;;;; animation ;;;;;;;;;;
 (bind-func draw_frame:[void]*
-  (let ((colour_attachment_index:GLenum* (alloc))
+  (let ((colour_attachment_index:GLenum* (alloc)) (i:i64 0)
         (timeLoc (glGetUniformLocation acoustics_prog "time"))
         (starttimeLoc (glGetUniformLocation acoustics_prog "starttime"))
         (durLoc (glGetUniformLocation acoustics_prog "dur"))
         (driverRadiusLoc (glGetUniformLocation acoustics_prog "driver_radius"))
         (LmLoc (glGetUniformLocation acoustics_prog "Lm"))
         (LLoc (glGetUniformLocation acoustics_prog "L"))
-        (signalLoc (glGetUniformLocation acoustics_prog "signal")))
+        (signal0Loc (glGetUniformLocation acoustics_prog "signal0"))
+        (signal1Loc (glGetUniformLocation acoustics_prog "signal1"))
+        (signal2Loc (glGetUniformLocation acoustics_prog "signal2"))
+        (signal3Loc (glGetUniformLocation acoustics_prog "signal3"))
+        (signal4Loc (glGetUniformLocation acoustics_prog "signal4"))
+        (signal5Loc (glGetUniformLocation acoustics_prog "signal5"))
+        (signal6Loc (glGetUniformLocation acoustics_prog "signal6"))
+        (signal7Loc (glGetUniformLocation acoustics_prog "signal7")))
     (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
     ;(glClampColor GL_CLAMP_READ_COLOR 0:i32)
     (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+    (glEnable GL_BLEND)
+    (glBlendFunc GL_ONE GL_ONE)
     (lambda ()
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-      (glClearColor 0.0 0.0 0.0 1.0)
+      (glClearColor 0.5 0.5 0.5 1.0)
       (glPointParameteri GL_POINT_SPRITE_COORD_ORIGIN GL_LOWER_LEFT)
       (glDisable GL_PROGRAM_POINT_SIZE)
 
@@ -639,22 +744,31 @@
       (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
       ;; and this rendering will sample from our signal texture
-      (let ((src:SignalSource* (aref sources 0)))
+      (glUseProgram acoustics_prog)
+      (dotimes (i num_signales)
+        (let* ((sig:Signal* (pref signales i))
+               (sl:i32 (i64toi32 (slot sig)))
+               (tx:Texture (tex sig)))
         ;(println "t:" (- (fnow) (starttime src)) "Duration:" (duration src))
-        (glActiveTexture (+ GL_TEXTURE0 1))
-        (glBindTexture GL_TEXTURE_1D signal1)
-        (glUseProgram acoustics_prog)
-        (glUniform1f timeLoc (fnow))
-        (glUniform1f starttimeLoc (starttime src))
-        (glUniform1f durLoc (duration src))
-        (glUniform1f driverRadiusLoc (radius src))
-        (glUniform1f LmLoc Lm)
-        (glUniform1f LLoc (i32tof L))
-        (glUniform1i signalLoc 1)
+          (glActiveTexture (+ GL_TEXTURE0 sl))
+          (glBindTexture GL_TEXTURE_1D tx)))
+
+      (glUniform1f timeLoc (fnow))
+      (glUniform1f LmLoc Lm)
+      (glUniform1f LLoc (i32tof L))
+      (glUniform1i signal0Loc 1:i32)
+      (glUniform1i signal1Loc 2:i32)
+      (glUniform1i signal2Loc 3:i32)
+      (glUniform1i signal3Loc 4:i32)
+      (glUniform1i signal4Loc 5:i32)
+      (glUniform1i signal5Loc 6:i32)
+      (glUniform1i signal6Loc 7:i32)
+      (glUniform1i signal7Loc 8:i32)
+      
         ;; ;(glPointSize (/ height (i64tof (* 2 num_y))))
-        (glPointSize (i32tof L))
-        (glBindVertexArray (VAO_id acoustics_vao))
-        (glDrawArrays GL_POINTS 0 1))
+      (glPointSize (i32tof L))
+      (glBindVertexArray (VAO_id acoustics_vao))
+      (glDrawArrays GL_POINTS 0 (i64toi32 num_sources))
 
         ;; ;; Rebind the default buffer, which also unbinds the compute framebuffer
       ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
@@ -691,7 +805,7 @@
     (if (= GLFW_PRESS (glfwGetKey window GLFW_KEY_ENTER))
         (begin
           (println "ENTER pressed")
-          (restart (aref sources 0))))
+          (restart (pref sources 0))))
       void))
 
 
@@ -730,8 +844,8 @@
       (draw_loop.go:bool #f)
       void))))
 
-(initialise_acoustics_shaders)
-(frame_rate 30.0)
+;(initialise_acoustics_shaders)
+(frame_rate 60.0)
 ($ (run_graphics #t))
 
 (define *xtmlib-ybot_acoustics-loaded* #t)
