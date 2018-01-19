@@ -25,20 +25,20 @@ in vec4 source_data;
 
 out vec4 frag_colour = vec4(0.0, 0.0, 0.0, 1.0);
 
-const  float c = 0.343;
+const  float c = 0.0343;
 
 float conform(float x){
   return 0.5 + tanh(x) / 2.;
 }
 
 
-float ac2dc(float x){
-  return 0.5 + (x / 2.0);
-}
+// float ac2dc(float x){
+//   return 0.5 + (x / 2.0);
+// }
 
-vec4 ac2dcv(vec4 v) {
-  return vec4(ac2dc(v.r), ac2dc(v.g), ac2dc(v.b), ac2dc(v.a)); 
-}
+// vec4 ac2dcv(vec4 v) {
+//   return vec4(ac2dc(v.r), ac2dc(v.g), ac2dc(v.b), ac2dc(v.a)); 
+// }
 
 void main() {
 
@@ -100,11 +100,11 @@ void main() {
   }
   
   if (p <= event_horizon && p > a) {
-    frag_colour = vec4(ac2dcv(retard / R).rgb,1.0);
+    frag_colour = vec4((retard / R).rgb,1.0);
   } else if (p <= a) {
-    frag_colour = vec4(ac2dcv(current).rgb,1.0);
+    frag_colour = vec4(current.rgb,1.0);
   } else {
-    frag_colour = vec4(0.5, 0.5, 0.5, 1.0);
+    frag_colour = vec4(0.0, 0.0, 0.0, 1.0);
   }
 
   //frag_colour = current;
