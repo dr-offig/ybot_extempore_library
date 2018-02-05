@@ -1,7 +1,7 @@
 #version 400
 
 // texture coordinates from vertex shaders
-//in vec2 st;
+in vec2 st;
 
 // texture sampler
 uniform sampler2D tex;
@@ -17,7 +17,7 @@ float conform(float x){
 
 vec4 HyperbolicGreyScale(float x){
   float y = conform(x);
-  return vec4(y,y,y,1.0);
+  return vec4(y,y,y,0.0);
 }
 
 vec3 HyperbolicRGB(vec3 v){
@@ -28,7 +28,17 @@ vec3 HyperbolicRGB(vec3 v){
 }
 
 void main () {
-  vec3 colour = texture (tex, gl_PointCoord).rgb;
-  frag_colour = vec4(HyperbolicRGB(colour),1.0);
-  //frag_colour = vec4 (colour.b,0.0,0.0,1.0);
+  vec3 colour = texture(tex, st).rgb;
+  //vec3 colour = texture (tex, gl_PointCoord).rgb;
+  //frag_colour = vec4(HyperbolicRGB(colour),1.0);
+  frag_colour = HyperbolicGreyScale(colour.b);
+  // if (colour.b < 0.0) {
+  //   frag_colour = vec4(0.0, 0.0, abs(colour.b), 1.0);
+  // }  else {
+  //   frag_colour = vec4(colour.b, 0.0, 0.0, 1.0);
+  // }  
+   
+  
+  //frag_colour = vec4(colour.rgb, 1.0);
+
 }
