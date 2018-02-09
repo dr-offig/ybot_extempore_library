@@ -221,7 +221,7 @@
 
 
 ;;;;; We only need a limited number of signal generators (they can be shared by many point sources)
-(bind-val Wavetables Wavetable** 8)
+(bind-val wavetables Wavetable** 8)
 (bind-val num_wavetables i64 0)
 (bind-func create_wavetables
   (lambda ()
@@ -239,7 +239,7 @@
     (cond
      ((< m 8)
       (let* ((n:i64 wavetable_length)
-             (sig:Signal* (pref wavetables m))
+             (sig:Wavetable* (pref wavetables m))
              (audio_tex:Texture (tex sig))
              (sl:i64 (slot sig))
              (data:float* (alloc (* 4 n)))
@@ -263,7 +263,7 @@
     (cond
      ((< m 8)
       (let* ((n:i64 wavetable_length)
-             (sig:Signal* (pref wavetables m))
+             (sig:Wavetable* (pref wavetables m))
              (audio_tex:Texture (tex sig))
              (sl:i64 (slot sig))
              (data:float* (alloc (* 4 n)))
@@ -368,7 +368,7 @@
 
 ;;;;;;;;;
 (add_sinewave 1.0 0.5 0.0)
-($ (add_point_source_to_signal 0 0.5 (fnow) cx cy 10.0))
+($ (add_point_source 0 0.5 (fnow) cx cy 10.0))
 ;($ (add_point_source_to_signal 0 cx (+ cy 10.0) 10.0))
 ;(add_point_source_to_signal 0 300.0 200.0 20.0)
 ;(add_point_source_to_signal 0 600.0 600.0 20.0)
@@ -397,7 +397,7 @@
          (ShaderProgram_create
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.vert")
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.frag")))
-    (let ((tmp:float* (alloc (* 7 num_sources))) (i:i64 0) (cc:i64 0))
+    (let ((tmp:float* (alloc (* 11 4 num_sources))) (i:i64 0) (cc:i64 0))
       (dotimes (i num_sources)
         (let* ((source:SignalSource* (pref sources i))
                (sig:Wavetable* (signal source))
