@@ -31,12 +31,15 @@ void main () {
   vec3 colour = texture(tex, st).rgb;
   //vec3 colour = texture (tex, gl_PointCoord).rgb;
   //frag_colour = vec4(HyperbolicRGB(colour),1.0);
-  frag_colour = HyperbolicGreyScale(colour.b);
-  // if (colour.b < 0.0) {
-  //   frag_colour = vec4(0.0, 0.0, abs(colour.b), 1.0);
-  // }  else {
-  //   frag_colour = vec4(colour.b, 0.0, 0.0, 1.0);
-  // }  
+  //frag_colour = HyperbolicGreyScale(colour.b);
+  //frag_colour = vec4(colour,1.0);
+
+
+  if (colour.b < 0.0) {
+    frag_colour = vec4(0.0, 0.0, abs(colour.b), 1.0);
+  }  else {
+    frag_colour = vec4(colour.b, 0.0, 0.0, 1.0);
+  }  
    
   
   //frag_colour = vec4(colour.rgb, 1.0);

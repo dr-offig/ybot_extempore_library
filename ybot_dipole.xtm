@@ -177,10 +177,9 @@
 (bind-val acoustics_vbo VBO*)
 (bind-val acoustics_prog ShaderProgram)
 (bind-val acoustics_fbo FBO* (FBO_create))
-(bind-val c float 0.0343)
-;; (bind-val metres_per_pixel float 0.001)
-(bind-val PLm float 1.0)
-($ (set! c 0.01:float))
+(bind-val c float 343.0)
+(bind-val mm_per_pixel float 1.0)
+
 
 (bind-func fnow:[float]*
   (lambda ()
@@ -369,6 +368,7 @@
 ;;;;;;;;;
 (add_sinewave 1.0 0.5 0.0)
 ($ (add_point_source 0 0.5 (fnow) cx cy 10.0))
+($ (add_point_source 0 0.5 (fnow) 100.0 100.0 30.0))
 ;($ (add_point_source_to_signal 0 cx (+ cy 10.0) 10.0))
 ;(add_point_source_to_signal 0 300.0 200.0 20.0)
 ;(add_point_source_to_signal 0 600.0 600.0 20.0)
@@ -397,26 +397,34 @@
          (ShaderProgram_create
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.vert")
           (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.frag")))
-    (let ((tmp:float* (alloc (* 11 4 num_sources))) (i:i64 0) (cc:i64 0))
+    (let* ((N:i64 13) (tmp:float* (alloc (* N 6 num_sources))) (i:i64 0) (cc:i64 0))
       (dotimes (i num_sources)
         (let* ((source:SignalSource* (pref sources i))
-               (sig:Wavetable* (signal source))
+               (sig:Wavetable* (wavetable source))
                (sl:i32 (i64toi32 (slot sig)))
                (stt:float (starttime source))
                (dur:float (duration sig))
-               (rad:float (radius source)))
-          (pset! tmp cc (- (/ (position_x source) width) 0.5:float)) (set! cc (+ cc 1))
-          (pset! tmp cc (- (/ (position_y source) height) 0.5:float)) (set! cc (+ cc 1))
-          (pset! tmp cc 0.0) (set! cc (+ cc 1))
-          (pset! tmp cc (i32tof sl)) (set! cc (+ cc 1))
-          (pset! tmp cc stt) (set! cc (+ cc 1))
-          (pset! tmp cc dur) (set! cc (+ cc 1))
-          (pset! tmp cc rad) (set! cc (+ cc 1))))
-          
-      (set! acoustics_vbo (VBO_create tmp (* 7 num_sources)))
+               (rad:float (radius source))
+               (phi:float (phase source))
+               (px:float (- (/ (position_x source) width) 0.5:float))
+               (py:float (- (/ (position_y source) width) 0.5:float))
+               (pz:float 0.0))
+                (pfill! tmp
+              ;; x     y   tex_coord    px  py  pz  slot          start  dur  rad  phase  kazoo
+              -1.     -1.     0.     0.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+              -1.      1.     0.     1.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.      1.     1.     1.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.      1.     1.     1.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.     -1.     1.     0.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               -1.    -1.     0.     0.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               )))
+      (set! acoustics_vbo (VBO_create tmp (* N 6 num_sources)))
       (set! acoustics_vao (VAO_create))
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 3 7 0)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 4 7 3)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 2 (i64toi32 N) 0)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 (i64toi32 N) 2)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 2 3 (i64toi32 N) 4)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 3 4 (i64toi32 N) 7)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 4 2 (i64toi32 N) 11)
       ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
       ;(texture_bind_data_using_slot render_tex null w h 4 render_slot)
       (FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
@@ -427,17 +435,15 @@
 (initialise_acoustics_shaders)
 
 
-(bind-func line_array:[i64,i64,float]*
-  (lambda (n delta)
-    (let ((i:i64 0))
-      (dotimes (i n)
-        (add_point_source_to_signal 0 (+ 200.0 (* (i64tof i) delta)) 200.0 10.0))
-      (initialise_acoustics_shaders)
-      n)))
+;; (bind-func line_array:[i64,i64,float]*
+;;   (lambda (n delta)
+;;     (let ((i:i64 0))
+;;       (dotimes (i n)
+;;         (add_point_source 0 0.0 (+ 200.0 (* (i64tof i) delta)) 200.0 10.0))
+;;       (initialise_acoustics_shaders)
+;;       n)))
 
 ;(line_array 20 5.0)
-
-
 
 
 ;;;;;;;;;; Preview Shaders ;;;;;;;;;
@@ -491,12 +497,7 @@
 (bind-func draw_frame:[void]*
   (let ((colour_attachment_index:GLenum* (alloc)) (i:i64 0)
         (timeLoc (glGetUniformLocation acoustics_prog "time"))
-        (starttimeLoc (glGetUniformLocation acoustics_prog "starttime"))
-        (durLoc (glGetUniformLocation acoustics_prog "dur"))
-        (driverRadiusLoc (glGetUniformLocation acoustics_prog "driver_radius"))
-        (LmLoc (glGetUniformLocation acoustics_prog "Lm"))
-        (LLoc (glGetUniformLocation acoustics_prog "L"))
-        (cLoc (glGetUniformLocation acoustics_prog "c"))
+        (mmppLoc (glGetUniformLocation acoustics_prog "mmpp"))
         (signal0Loc (glGetUniformLocation acoustics_prog "signal0"))
         (signal1Loc (glGetUniformLocation acoustics_prog "signal1"))
         (signal2Loc (glGetUniformLocation acoustics_prog "signal2"))
@@ -515,29 +516,21 @@
       (glBlendFunc GL_ONE GL_ONE)
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
       (glClearColor 0.0 0.0 0.0 1.0)
-      (glPointParameteri GL_POINT_SPRITE_COORD_ORIGIN GL_LOWER_LEFT)
-      (glDisable GL_PROGRAM_POINT_SIZE)
-
+ 
       ;; We will render into the first colour attachment of our acoustics framebuffer
       (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id acoustics_fbo))
-      ;;(glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
       (glDrawBuffers 1 colour_attachment_index)
-      ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
       (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
       ;; and this rendering will sample from our signal texture
       (glUseProgram acoustics_prog)
-      (dotimes (i num_signales)
-        (let* ((sig:Signal* (pref signales i))
+      (dotimes (i num_wavetables)
+        (let* ((sig:Wavetable* (pref wavetables i))
                (sl:i32 (i64toi32 (slot sig)))
                (tx:Texture (tex sig)))
-        ;(println "t:" (- (fnow) (starttime src)) "Duration:" (duration src))
           (glActiveTexture (+ GL_TEXTURE0 sl))
           (glBindTexture GL_TEXTURE_1D tx)))
-
       (glUniform1f timeLoc (fnow))
-      (glUniform1f LmLoc PLm)
-      (glUniform1f LLoc (i32tof PL))
-      (glUniform1f cLoc c)
+      (glUniform1f mmppLoc (fnow))
       (glUniform1i signal0Loc 1:i32)
       (glUniform1i signal1Loc 2:i32)
       (glUniform1i signal2Loc 3:i32)
@@ -546,13 +539,9 @@
       (glUniform1i signal5Loc 6:i32)
       (glUniform1i signal6Loc 7:i32)
       (glUniform1i signal7Loc 8:i32)
-      
-        ;; ;(glPointSize (/ height (i64tof (* 2 num_y))))
-      (glPointSize (i32tof PL))
-      ;;(glPointSize 2000.0:float)
       (glBindVertexArray (VAO_id acoustics_vao))
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-      (glDrawArrays GL_POINTS 0 (i64toi32 num_sources))
+      (glDrawArrays GL_TRIANGLES 0 (i64toi32 (* 6 num_sources)))
 
         ;; ;; Rebind the default buffer, which also unbinds the compute framebuffer
       (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
@@ -629,6 +618,7 @@
       (draw_loop.go:bool #f)
       void))))
 
+(initialise_screen_shaders)
 (initialise_acoustics_shaders)
 (frame_rate 100.0)
 ($ (run_graphics #f))

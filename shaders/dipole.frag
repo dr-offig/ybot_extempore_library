@@ -1,32 +1,28 @@
 #version 400
 
-// uniform float cx;
-// uniform float cy;
-// uniform float r;
-// uniform float value;
-// uniform int channel;
+
 uniform float time;
-//uniform float starttime;
-//uniform float dur;
-//uniform float driver_radius;
-uniform float Lm;
-uniform float L;
-uniform float c;
+//uniform float Lm;
+//uniform float L;
+uniform float mmpp;
+//uniform float c;
+constant float c = 343.0;
 
-uniform sampler1D signal0;
-uniform sampler1D signal1;
-uniform sampler1D signal2;
-uniform sampler1D signal3;
-uniform sampler1D signal4;
-uniform sampler1D signal5;
-uniform sampler1D signal6;
-uniform sampler1D signal7;
+uniform sampler1D wavetable0;
+uniform sampler1D wavetable1;
+uniform sampler1D wavetable2;
+uniform sampler1D wavetable3;
+uniform sampler1D wavetable4;
+uniform sampler1D wavetable5;
+uniform sampler1D wavetable6;
+uniform sampler1D wavetable7;
 
-in vec4 source_data;
+in vec2 tex_coord;
+in vec3 source_position;   // position of speaker element in millimetres (from bottom left of screen)
+in vec4 source_data;        // all lengths in millimetres, times in milliseconds
+in vec2 more_source_data; 
 
 out vec4 frag_colour = vec4(0.0, 0.0, 0.0, 0.0);
-
-//const  float c = 0.343;
 
 float conform(float x){
   return 0.5 + tanh(x) / 2.;
@@ -43,91 +39,65 @@ float conform(float x){
 
 void main() {
 
-  float x = gl_PointCoord.x;
-  float y = gl_PointCoord.y;
-  float dx = x - 0.5;
-  float dy = y - 0.5;
-
-  //if (dy <= 0.0) {
-  //frag_colour = vec4(1.0, 1.0, 0.0, 1.0);
-  //} else {
+  float x = gl_FragCoord.x * mmpp;
+  float y = gl_FragCoord.y * mmpp;
+  float dx = x - source_position.x;
+  float dy = x - source_position.y;
   
-    int slot = int(round(source_data.r));
-    float starttime = source_data.g;
-    float dur = source_data.b;
-    float driver_radius = source_data.a;
+  int slot = int(round(source_data.r));     // which wavetable to look up
+  float starttime = source_data.g;           
+  float dur = source_data.b;
+  float a = source_data.a;  // driver_radius in millimetres
+  float phase = more_source_data.x;
+  float r = sqrt(dx*dx + dy*dy);
+  float attenuation = a / r;
 
-    float a = driver_radius / L;
-    //float x = gl_PointCoord.x;
-    //float y = gl_PointCoord.y;
-    //float dx = x - 0.5;
-    //float dy = y - 0.5;
-    float r = sqrt(dx*dx + dy*dy);
-    //float R = p / a;
-    float R = r * (0.5 * Lm);
-    float A = a * (0.5 * Lm);
-    float t = (time - starttime);
-    float ct = c * t;
-    float s = t / dur;
-    //float ping_time = t - (p * 0.5 * Lm / c);
-    float ping_time = t - ((R-A) / c); 
-    float ping_coord = ping_time / dur;
-    //float cycles = floor(s);
-    float phase = fract(s);
-    //float event_horizon = ct / (0.5 * Lm);
+  float t = (time - starttime);
+  float ct = c * t;
+  float retarded_time = t - ((r-a) / c);
+  float current_phase = t / dur;
+  float retarded_phase = retarded_time / dur;
 
-    
-    //vec4 blergh = texture(signal,s);
-    //float q = ac2dc(blergh.r);
-    //frag_colour = vec4(q, q, q, 1.0);
-
+  vec4 current = texture(wavetable0, current_phase);
+  vec4 retard = texture(wavetable0, retarded_phase);
   
-    vec4 current = texture(signal0, phase);
-    vec4 retard = texture(signal0, ping_coord);
+  if (slot == 1){
+    current = texture(wavetable0,s);
+    retard = texture(wavetable0, retarded_phase);
+  } else if (slot == 2) {
+    current = texture(wavetable1,s);
+    retard = texture(wavetable1, retarded_phase);
+  } else if (slot == 3) {
+    current = texture(wavetable2,s);
+    retard = texture(wavetable2, retarded_phase);
+  } else if (slot == 4) {
+    current = texture(wavetable3,s);
+    retard = texture(wavetable3, retarded_phase);
+  } else if (slot == 5) {
+    current = texture(wavetable4,s);
+    retard = texture(wavetable4, retarded_phase);
+  } else if (slot == 6) {
+    current = texture(wavetable5,s);
+    retard = texture(wavetable5, retarded_phase);
+  } else if (slot == 7) {
+    current = texture(wavetable6,s);
+    retard = texture(wavetable6, retarded_phase);
+  } else if (slot == 8) {
+    current = texture(wavetable7,s);
+    retard = texture(wavetable7, retarded_phase);
+  } else {
+    current = texture(wavetable0,s);
+    retard = texture(wavetable0, retarded_phase);
+  }
 
-    if (slot == 1){
-      current = texture(signal0,s);
-      retard = texture(signal0, ping_coord);
-    } else if (slot == 2) {
-      current = texture(signal1,s);
-      retard = texture(signal1, ping_coord);
-    } else if (slot == 3) {
-      current = texture(signal2,s);
-      retard = texture(signal2, ping_coord);
-    } else if (slot == 4) {
-      current = texture(signal3,s);
-      retard = texture(signal3, ping_coord);
-    } else if (slot == 5) {
-      current = texture(signal4,s);
-      retard = texture(signal4, ping_coord);
-    } else if (slot == 6) {
-      current = texture(signal5,s);
-      retard = texture(signal5, ping_coord);
-    } else if (slot == 7) {
-      current = texture(signal6,s);
-      retard = texture(signal6, ping_coord);
-    } else if (slot == 8) {
-      current = texture(signal7,s);
-      retard = texture(signal7, ping_coord);
-    } else {
-      current = texture(signal0,s);
-      retard = texture(signal0, ping_coord);
-    }
+  if (r < a) {
+    frag_colour = vec4(0.0, 0.0, current.b, 1.0);
+  } else if (r <= a + ct) {
+    //frag_colour =  vec4(0.0, 0.0, 0.0, retard.b / attenuation, 1.0);
+    frag_colour = vec4(1.0,1.0,1.0,1.0);
+  } else {
+    frag_colour = vec4(0.0, 0.0, 0.0, 1.0);
+  }
 
-    if (R <= A) {
-      frag_colour = vec4(0.0, 0.0, current.b, 0.0);
-    } else if (R <= A + ct) {
-      frag_colour = vec4(0.0, 0.0, retard.b * (A / R), 0.0);
-    } else {
-      frag_colour = vec4(0.0, 0.0, 0.0, 0.0);
-    }
-
-    // if (R <= A) {
-    //   frag_colour = vec4(0.0, 0.0, 1.0, 0.0);
-    // } else if (R - A <= ct ) {
-    //   frag_colour = vec4(0.0, 0.0, 0.8, 0.0);
-    // }
-
-    //}
       
 }
