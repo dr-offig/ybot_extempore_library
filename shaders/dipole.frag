@@ -4,7 +4,7 @@
 uniform float time;
 //uniform float Lm;
 //uniform float L;
-uniform float mmpp;
+//uniform float mmpp;
 //uniform float c;
 const float c = 343.0;
 
@@ -29,21 +29,15 @@ float conform(float x){
 }
 
 
-// float ac2dc(float x){
-//   return 0.5 + (x / 2.0);
-// }
-
-// vec4 ac2dcv(vec4 v) {
-//   return vec4(ac2dc(v.r), ac2dc(v.g), ac2dc(v.b), ac2dc(v.a)); 
-// }
-
 void main() {
 
-  float x = gl_FragCoord.x * mmpp;
-  float y = gl_FragCoord.y * mmpp;
+  //float x = gl_FragCoord.x * mmpp;
+  //float y = gl_FragCoord.y * mmpp;
+  float x = tex_coord.x;
+  float y = tex_coord.y;
   float dx = x - source_position.x;
-  float dy = x - source_position.y;
-  
+  float dy = y - source_position.y;
+
   int slot = int(round(source_data.r));     // which wavetable to look up
   float starttime = source_data.g;           
   float dur = source_data.b;
@@ -90,16 +84,16 @@ void main() {
     retard = texture(wavetable0, retarded_phase);
   }
 
-  // if (r < a) {
-  //   frag_colour = vec4(0.0, 0.0, current.b, 1.0);
-  // } else if (r <= a + ct) {
-  //   frag_colour =  vec4(0.0, 0.0, retard.b / attenuation, 1.0);
-  //   //frag_colour = vec4(1.0,1.0,1.0,1.0);
-  // } else {
-  //   frag_colour = vec4(0.0, 0.0, 0.0, 1.0);
-  // }
+  if (r < a) {
+    frag_colour = vec4(0.0, 0.0, current.b, 1.0);
+  } else if (r <= a + ct) {
+    frag_colour =  vec4(0.0, 0.0, retard.b * attenuation, 1.0);
+    //frag_colour = vec4(1.0,1.0,1.0,1.0);
+  } else {
+    frag_colour = vec4(0.0, 0.0, 0.0, 1.0);
+  }
 
-  frag_colour = vec4(tex_coord.x, tex_coord.y, 0.0, 1.0);
+  //frag_colour = vec4(current.b, 0.0, 0.0, 1.0);
 
   
 }

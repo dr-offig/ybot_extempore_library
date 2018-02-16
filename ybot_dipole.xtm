@@ -179,7 +179,8 @@
 (bind-val acoustics_fbo FBO* (FBO_create))
 (bind-val c float 343.0)
 (bind-val mm_per_pixel float 1.0)
-
+(bind-val room_half_length float (* mm_per_pixel cx))
+(bind-val room_half_breadth float (* mm_per_pixel cy))
 
 (bind-func fnow:[float]*
   (lambda ()
@@ -366,9 +367,9 @@
 
 
 ;;;;;;;;;
-(add_sinewave 1.0 0.5 0.0)
-($ (add_point_source 0 0.5 (fnow) cx cy 10.0))
-($ (add_point_source 0 0.5 (fnow) 100.0 100.0 30.0))
+(add_sinewave 1.0 0.1 0.0)
+;($ (add_point_source 0 0.5 (fnow) cx cy 10.0))
+($ (add_point_source 0 0.5 (fnow) 0.0 0.0 10.0))
 ;($ (add_point_source_to_signal 0 cx (+ cy 10.0) 10.0))
 ;(add_point_source_to_signal 0 300.0 200.0 20.0)
 ;(add_point_source_to_signal 0 600.0 600.0 20.0)
@@ -380,7 +381,7 @@
     (set! num_sources 0)
     void))
 
-;(remove_all_sources)
+(remove_all_sources)
 
 (bind-func remove_all_signals
   (lambda ()
@@ -388,7 +389,7 @@
     (set! num_wavetables 0)
     void))
 
-;(remove_all_signals)
+(remove_all_signals)
 
 
 (bind-func initialise_acoustics_shaders:[void]*
@@ -406,17 +407,19 @@
                (dur:float (duration sig))
                (rad:float (radius source))
                (phi:float (phase source))
-               (px:float (- (/ (position_x source) width) 0.5:float))
-               (py:float (- (/ (position_y source) width) 0.5:float))
+               ;(px:float (- (/ (position_x source) width) 0.5:float))
+                                        ;(py:float (- (/ (position_y source) width) 0.5:float))
+               (px:float (position_x source))
+               (py:float (position_y source))
                (pz:float 0.0))
                 (pfill! tmp
-              ;; x     y   tex_coord    px  py  pz  slot          start  dur  rad  phase  kazoo
-              -1.     -1.     0.     0.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-              -1.      1.     0.     1.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.      1.     1.     1.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.      1.     1.     1.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.     -1.     1.     0.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               -1.    -1.     0.     0.     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+              ;; x     y   tex_coord                                                                                         px  py  pz  slot          start  dur  rad  phase  kazoo
+              -1.     -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+              -1.      1.     (* -1.0:float room_half_length) (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.     -1.     (* 1.0:float room_half_length) (* -1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               -1.    -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
                )))
       (set! acoustics_vbo (VBO_create tmp (* N 6 num_sources)))
       (set! acoustics_vao (VAO_create))
@@ -495,15 +498,15 @@
 (bind-func draw_frame:[void]*
   (let ((colour_attachment_index:GLenum* (alloc)) (i:i64 0)
         (timeLoc (glGetUniformLocation acoustics_prog "time"))
-        (mmppLoc (glGetUniformLocation acoustics_prog "mmpp"))
-        (signal0Loc (glGetUniformLocation acoustics_prog "signal0"))
-        (signal1Loc (glGetUniformLocation acoustics_prog "signal1"))
-        (signal2Loc (glGetUniformLocation acoustics_prog "signal2"))
-        (signal3Loc (glGetUniformLocation acoustics_prog "signal3"))
-        (signal4Loc (glGetUniformLocation acoustics_prog "signal4"))
-        (signal5Loc (glGetUniformLocation acoustics_prog "signal5"))
-        (signal6Loc (glGetUniformLocation acoustics_prog "signal6"))
-        (signal7Loc (glGetUniformLocation acoustics_prog "signal7"))
+        ;(mmppLoc (glGetUniformLocation acoustics_prog "mmpp"))
+        (wavetable0Loc (glGetUniformLocation acoustics_prog "wavetable0"))
+        (wavetable1Loc (glGetUniformLocation acoustics_prog "wavetable1"))
+        (wavetable2Loc (glGetUniformLocation acoustics_prog "wavetable2"))
+        (wavetable3Loc (glGetUniformLocation acoustics_prog "wavetable3"))
+        (wavetable4Loc (glGetUniformLocation acoustics_prog "wavetable4"))
+        (wavetable5Loc (glGetUniformLocation acoustics_prog "wavetable5"))
+        (wavetable6Loc (glGetUniformLocation acoustics_prog "wavetable6"))
+        (wavetable7Loc (glGetUniformLocation acoustics_prog "wavetable7"))
         (screenTexLoc (glGetUniformLocation screen_prog "tex")))
     (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
     (glClampColor GL_CLAMP_READ_COLOR 0:i32)
@@ -528,15 +531,15 @@
           (glActiveTexture (+ GL_TEXTURE0 sl))
           (glBindTexture GL_TEXTURE_1D tx)))
       (glUniform1f timeLoc (fnow))
-      (glUniform1f mmppLoc (fnow))
-      (glUniform1i signal0Loc 1:i32)
-      (glUniform1i signal1Loc 2:i32)
-      (glUniform1i signal2Loc 3:i32)
-      (glUniform1i signal3Loc 4:i32)
-      (glUniform1i signal4Loc 5:i32)
-      (glUniform1i signal5Loc 6:i32)
-      (glUniform1i signal6Loc 7:i32)
-      (glUniform1i signal7Loc 8:i32)
+      ;;(glUniform1f mmppLoc (fnow))
+      (glUniform1i wavetable0Loc 1:i32)
+      (glUniform1i wavetable1Loc 2:i32)
+      (glUniform1i wavetable2Loc 3:i32)
+      (glUniform1i wavetable3Loc 4:i32)
+      (glUniform1i wavetable4Loc 5:i32)
+      (glUniform1i wavetable5Loc 6:i32)
+      (glUniform1i wavetable6Loc 7:i32)
+      (glUniform1i wavetable7Loc 8:i32)
       (glBindVertexArray (VAO_id acoustics_vao))
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
       (glDrawArrays GL_TRIANGLES 0 (i64toi32 (* 6 num_sources)))
@@ -621,6 +624,10 @@
 (frame_rate 100.0)
 ($ (run_graphics #f))
 
+(remove_all_signals)
+(remove_all_sources)
+(add_sinewave 1.0 1.0 10.0)
+(add_point_source 0 0.0 (fnow) 0.0 0.0 10.0)
 
 (bind-func test_setup
   (lambda (m:i64 num:i64 r:float)
