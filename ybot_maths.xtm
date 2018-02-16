@@ -194,3 +194,28 @@
 (bind-val PHI double (/ (+ 1.0 (sqrt 5.0)) 2.0))
 (bind-val FHI float (dtof PHI))
 (set! *xtmlib-ybot_maths-loaded* #t)
+
+
+
+
+
+;;;;;;;;;;;;;;; Finite Fields ;;;;;;;;;;;;;;;;
+(bind-type Zp <i64,i64>)
+
+(bind-func value:[i64,Zp*]*
+  (lambda (z)
+    (mod (tref z 0) (tref z 1))))
+
+(bind-func value:[i64,Zp*,i64]*
+  (lambda (z x)
+    (tset! z 0 (mod x (tref z 1)))))
+
+(bind-func inc:[i64,Zp*]*
+  (lambda (z)
+    (tset! z 0 (mod (+ (tref z 0) 1) (tref z 1)))))
+
+(bind-func dec:[i64,Zp*]*
+  (lambda (z)
+    (tset! z 0 (mod (- (tref z 0) 1) (tref z 1)))))
+
+  

@@ -1,5 +1,5 @@
 (sys:load-preload-check 'ybot_dipole)
-(define *xtmlib-ybot_soundspheres-loaded* #f)
+(define *xtmlib-ybot_dipole-loaded* #f)
 
 (impc:aot:suppress-aot-do
  (sys:load "libs/external/gl/gl-objects.xtm")
@@ -395,8 +395,8 @@
   (lambda ()
     (set! acoustics_prog
          (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/soundsphere.frag")))
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.frag")))
     (let* ((N:i64 13) (tmp:float* (alloc (* N 6 num_sources))) (i:i64 0) (cc:i64 0))
       (dotimes (i num_sources)
         (let* ((source:SignalSource* (pref sources i))
@@ -489,8 +489,6 @@
     (glfwPollEvents)
     (glfwSwapBuffers window)
     void))
-
-
 
 
 ;;;;;;;;;; animation ;;;;;;;;;;
@@ -622,7 +620,6 @@
 (initialise_acoustics_shaders)
 (frame_rate 100.0)
 ($ (run_graphics #f))
-
 
 
 (bind-func test_setup

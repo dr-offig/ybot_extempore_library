@@ -179,6 +179,11 @@
         (apr_file_open handle_ref path (+ APR_FOPEN_READ APR_FOPEN_WRITE APR_FOPEN_CREATE) APR_FPROT_OS_DEFAULT yfs_global_pool)
         (pref handle_ref 0))))
 
+(bind-func yfs_open_readonly:[apr_file_t*,i8*]*
+  (lambda (path)
+    (let ((handle_ref:apr_file_t** (zalloc)))
+        (apr_file_open handle_ref path APR_FOPEN_READ APR_FPROT_OS_DEFAULT yfs_global_pool)
+        (pref handle_ref 0))))
 
 (bind-func yfs_close:[apr_status_t,apr_file_t*]*
   (lambda (handle)
@@ -338,6 +343,38 @@
     (let ((handle_ref:apr_dir_t** (zalloc)))
         (apr_dir_open handle_ref path yfs_global_pool)
         (pref handle_ref 0))))
+
+
+;; (bind-func yfs_read_pipe_named
+;;   (lambda (name:i8*)
+;;     (let ((pipe:apr_file_t* (yfs_open_readonly name))
+;;           (pEOF:bool* (halloc)))
+;;       (pset! pEOF 0 #f)
+;;       (let ((loop:[bool]*
+;;              (lambda ()
+;;                (cond
+;;                 ((pref pEOF 0)
+;;                  (yfs_close pipe) #f)
+;;                 (else
+;;                  (let ((c:i8 (yfs_read_byte pipe pEOF)))
+;;                    (printf "%c" c)
+;;                    (loop)))))))
+;;         (loop)))))
+
+
+(bind-func yfs_read_pipe
+  (lambda (pipe:apr_file_t* destination:i8*)
+    (let ((pEOF:bool* (halloc)) (cc:i64 0))
+      (pset! pEOF 0 #f)
+      (let ((loop:[bool]*
+             (lambda ()
+               (cond
+                ((pref pEOF 0) #f)
+                (else
+                 (let ((c:i8 (yfs_read_byte pipe pEOF)))
+                   (pset! destination cc c)
+                   (loop)))))))
+        (loop)))))
 
 
 (bind-val APR_ENOENT i32 2)

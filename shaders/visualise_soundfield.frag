@@ -10,7 +10,6 @@ uniform sampler2D tex;
 out vec4 frag_colour;
 
 
-
 float conform(float x){
   return 0.5 + tanh(x) / 2.;
 }
@@ -35,12 +34,14 @@ void main () {
   //frag_colour = vec4(colour,1.0);
 
 
-  if (colour.b < 0.0) {
-    frag_colour = vec4(0.0, 0.0, abs(colour.b), 1.0);
-  }  else {
-    frag_colour = vec4(colour.b, 0.0, 0.0, 1.0);
-  }  
+  // if (colour.b < 0.0) {
+  //   frag_colour = vec4(0.0, 0.0, abs(colour.b), 1.0);
+  // }  else {
+  //   frag_colour = vec4(colour.b, 0.0, 0.0, 1.0);
+  // }  
    
+  frag_colour = vec4(clamp(colour.rgb, 0.0, 1.0), 1.0);
+
   
   //frag_colour = vec4(colour.rgb, 1.0);
 

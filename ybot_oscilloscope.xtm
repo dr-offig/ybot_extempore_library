@@ -12,7 +12,7 @@
  (sys:load "libs/core/scheduler.xtm")
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
 
-(run_main_event_loop)
+;(run_main_event_loop)
 
 (bind-func VBO_create
   (lambda (buf:float* buflen)
@@ -359,7 +359,7 @@
       (cond
        (go
         (draw_frame)
-        ;(glfwPollEvents)
+        (glfwPollEvents)
         (glfwSwapBuffers window)
         (let ((next_time (+ time (convert FRAMEDELTA))))
           (callback next_time draw_loop next_time)
