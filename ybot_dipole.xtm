@@ -166,6 +166,7 @@
         -1:i32)))))
 
 
+
 (bind-val render_slot i32 0)
 (bind-val render_tex Texture (Texture_create))
 ($ (texture2D_bind_data_using_slot render_tex null w h 4 render_slot))
@@ -185,6 +186,53 @@
 (bind-func fnow:[float]*
   (lambda ()
     (/ (i64tof (now)) (/ SRf 1.0:float))))
+
+
+
+(bind-func initialise_acoustics_shaders:[void]*
+  (lambda ()
+    (set! acoustics_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.frag")))
+    (let* ((N:i64 13) (tmp:float* (alloc (* N 6 num_sources))) (i:i64 0) (cc:i64 0))
+      (dotimes (i num_sources)
+        (let* ((source:SignalSource* (pref sources i))
+               (sig:Wavetable* (wavetable source))
+               (sl:i32 (i64toi32 (slot sig)))
+               (stt:float (starttime source))
+               (dur:float (duration sig))
+               (rad:float (radius source))
+               (phi:float (phase source))
+               ;(px:float (- (/ (position_x source) width) 0.5:float))
+                                        ;(py:float (- (/ (position_y source) width) 0.5:float))
+               (px:float (position_x source))
+               (py:float (position_y source))
+               (pz:float 0.0))
+                (pfill! tmp
+              ;; x     y   tex_coord                                                                                         px  py  pz  slot          start  dur  rad  phase  kazoo
+              -1.     -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+              -1.      1.     (* -1.0:float room_half_length) (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               1.     -1.     (* 1.0:float room_half_length) (* -1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               -1.    -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
+               )))
+      (set! acoustics_vbo (VBO_create tmp (* N 6 num_sources)))
+      (set! acoustics_vao (VAO_create))
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 2 (i64toi32 N) 0)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 (i64toi32 N) 2)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 2 3 (i64toi32 N) 4)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 3 4 (i64toi32 N) 7)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 4 2 (i64toi32 N) 11)
+      ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
+      ;(texture_bind_data_using_slot render_tex null w h 4 render_slot)
+      (FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
+        ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
+    void)))
+
+
+(initialise_acoustics_shaders)
 
 
 ;;;;; Wave Table data type - basically a fixed size wavetable, of arbitrary duration, in a particular slot
@@ -354,6 +402,7 @@
   (lambda (m:i64 phase:float starttime:float x:float y:float r:float)
     (pset! sources num_sources (SignalSource_h (pref wavetables m) phase starttime #t x y r))
     (set! num_sources (+ num_sources 1))
+    (initialise_acoustics_shaders)
     void))
 
 
@@ -367,9 +416,9 @@
 
 
 ;;;;;;;;;
-(add_sinewave 1.0 0.1 0.0)
+;(add_sinewave 1.0 0.1 0.0)
 ;($ (add_point_source 0 0.5 (fnow) cx cy 10.0))
-($ (add_point_source 0 0.5 (fnow) 0.0 0.0 10.0))
+;($ (add_point_source 0 0.5 (fnow) 0.0 0.0 10.0))
 ;($ (add_point_source_to_signal 0 cx (+ cy 10.0) 10.0))
 ;(add_point_source_to_signal 0 300.0 200.0 20.0)
 ;(add_point_source_to_signal 0 600.0 600.0 20.0)
@@ -381,7 +430,7 @@
     (set! num_sources 0)
     void))
 
-(remove_all_sources)
+;(remove_all_sources)
 
 (bind-func remove_all_signals
   (lambda ()
@@ -389,53 +438,9 @@
     (set! num_wavetables 0)
     void))
 
-(remove_all_signals)
+;(remove_all_signals)
 
 
-(bind-func initialise_acoustics_shaders:[void]*
-  (lambda ()
-    (set! acoustics_prog
-         (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.frag")))
-    (let* ((N:i64 13) (tmp:float* (alloc (* N 6 num_sources))) (i:i64 0) (cc:i64 0))
-      (dotimes (i num_sources)
-        (let* ((source:SignalSource* (pref sources i))
-               (sig:Wavetable* (wavetable source))
-               (sl:i32 (i64toi32 (slot sig)))
-               (stt:float (starttime source))
-               (dur:float (duration sig))
-               (rad:float (radius source))
-               (phi:float (phase source))
-               ;(px:float (- (/ (position_x source) width) 0.5:float))
-                                        ;(py:float (- (/ (position_y source) width) 0.5:float))
-               (px:float (position_x source))
-               (py:float (position_y source))
-               (pz:float 0.0))
-                (pfill! tmp
-              ;; x     y   tex_coord                                                                                         px  py  pz  slot          start  dur  rad  phase  kazoo
-              -1.     -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-              -1.      1.     (* -1.0:float room_half_length) (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.     -1.     (* 1.0:float room_half_length) (* -1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               -1.    -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               )))
-      (set! acoustics_vbo (VBO_create tmp (* N 6 num_sources)))
-      (set! acoustics_vao (VAO_create))
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 2 (i64toi32 N) 0)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 (i64toi32 N) 2)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 2 3 (i64toi32 N) 4)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 3 4 (i64toi32 N) 7)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 4 2 (i64toi32 N) 11)
-      ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
-      ;(texture_bind_data_using_slot render_tex null w h 4 render_slot)
-      (FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
-        ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
-    void)))
-
-
-(initialise_acoustics_shaders)
 
 
 ;; (bind-func line_array:[i64,i64,float]*
@@ -510,18 +515,20 @@
         (screenTexLoc (glGetUniformLocation screen_prog "tex")))
     (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
     (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-    (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+    ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
     ;(glDisable GL_BLEND)
     (lambda ()
-      (glEnable GL_BLEND)
-      (glBlendFunc GL_ONE GL_ONE)
-      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-      (glClearColor 0.0 0.0 0.0 1.0)
  
       ;; We will render into the first colour attachment of our acoustics framebuffer
       (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id acoustics_fbo))
       (glDrawBuffers 1 colour_attachment_index)
-      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+      (glEnable GL_BLEND)
+      (glBlendEquation GL_FUNC_ADD)
+      (glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
+      
+      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      (glClearColor 0.0 0.0 0.0 1.0)
+      (glClear GL_COLOR_BUFFER_BIT)
       ;; and this rendering will sample from our signal texture
       (glUseProgram acoustics_prog)
       (dotimes (i num_wavetables)
@@ -619,15 +626,15 @@
       (draw_loop.go:bool #f)
       void))))
 
-(initialise_screen_shaders)
+;(initialise_screen_shaders)
 (initialise_acoustics_shaders)
-(frame_rate 100.0)
+;(frame_rate 100.0)
 ($ (run_graphics #f))
 
-(remove_all_signals)
-(remove_all_sources)
+;(remove_all_signals)
+;(remove_all_sources)
 (add_sinewave 1.0 1.0 10.0)
-(add_point_source 0 0.0 (fnow) 0.0 0.0 10.0)
+(add_point_source 0 0.0 (fnow) -100.0 0.0 10.0)
 
 (bind-func test_setup
   (lambda (m:i64 num:i64 r:float)

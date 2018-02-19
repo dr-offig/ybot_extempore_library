@@ -85,12 +85,12 @@ void main() {
   }
 
   if (r < a) {
-    frag_colour = vec4(0.0, 0.0, current.b, 1.0);
+    frag_colour = vec4(0.0, 0.0, current.b, 0.5);
   } else if (r <= a + ct) {
-    frag_colour =  vec4(0.0, 0.0, retard.b * attenuation, 1.0);
+    frag_colour =  vec4(0.0, 0.0, retard.b * attenuation, 0.5);
     //frag_colour = vec4(1.0,1.0,1.0,1.0);
   } else {
-    frag_colour = vec4(0.0, 0.0, 0.0, 1.0);
+    frag_colour = vec4(0.0, 0.0, 0.0, 0.5);
   }
 
   //frag_colour = vec4(current.b, 0.0, 0.0, 1.0);
