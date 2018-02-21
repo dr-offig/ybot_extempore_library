@@ -172,7 +172,7 @@
 ($ (texture2D_bind_data_using_slot render_tex null w h 4 render_slot))
 
 
-;;;;;;;;;;;;; Each vertex is a soundsphere ;;;;;;;;;
+;;;;;;;;;;;;; Each quad is a soundsphere ;;;;;;;;;
 (bind-val acoustics_vert_data float*)
 (bind-val acoustics_vao VAO*)
 (bind-val acoustics_vbo VBO*)
@@ -189,50 +189,6 @@
 
 
 
-(bind-func initialise_acoustics_shaders:[void]*
-  (lambda ()
-    (set! acoustics_prog
-         (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.frag")))
-    (let* ((N:i64 13) (tmp:float* (alloc (* N 6 num_sources))) (i:i64 0) (cc:i64 0))
-      (dotimes (i num_sources)
-        (let* ((source:SignalSource* (pref sources i))
-               (sig:Wavetable* (wavetable source))
-               (sl:i32 (i64toi32 (slot sig)))
-               (stt:float (starttime source))
-               (dur:float (duration sig))
-               (rad:float (radius source))
-               (phi:float (phase source))
-               ;(px:float (- (/ (position_x source) width) 0.5:float))
-                                        ;(py:float (- (/ (position_y source) width) 0.5:float))
-               (px:float (position_x source))
-               (py:float (position_y source))
-               (pz:float 0.0))
-                (pfill! tmp
-              ;; x     y   tex_coord                                                                                         px  py  pz  slot          start  dur  rad  phase  kazoo
-              -1.     -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-              -1.      1.     (* -1.0:float room_half_length) (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               1.     -1.     (* 1.0:float room_half_length) (* -1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               -1.    -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      0.0
-               )))
-      (set! acoustics_vbo (VBO_create tmp (* N 6 num_sources)))
-      (set! acoustics_vao (VAO_create))
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 2 (i64toi32 N) 0)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 (i64toi32 N) 2)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 2 3 (i64toi32 N) 4)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 3 4 (i64toi32 N) 7)
-      (VAO_bind_attribute acoustics_vao acoustics_vbo 4 2 (i64toi32 N) 11)
-      ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
-      ;(texture_bind_data_using_slot render_tex null w h 4 render_slot)
-      (FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
-        ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
-    void)))
-
-
-(initialise_acoustics_shaders)
 
 
 ;;;;; Wave Table data type - basically a fixed size wavetable, of arbitrary duration, in a particular slot
@@ -339,18 +295,18 @@
         
 
 
-;; SignalSource type:  Wavetable, phase (0.0 -- 1.0), starttime (ms), loop?, x, y, radius
-(bind-type SignalSource <Wavetable*,float,float,bool,float,float,float,float> (constructor? . #f) (printer? . #f))
-(bind-func SignalSource:[SignalSource*,Wavetable*,float,float,bool,float,float,float]*
-  (lambda (sig phase starttime loop x y r)
+;; SignalSource type:  Wavetable, phase (0.0 -- 1.0), invert?, starttime (ms), loop?, x, y, radius
+(bind-type SignalSource <Wavetable*,float,bool,float,bool,float,float,float,float> (constructor? . #f) (printer? . #f))
+(bind-func SignalSource:[SignalSource*,Wavetable*,float,bool,float,bool,float,float,float]*
+  (lambda (sig phase invert starttime loop x y r)
     (let ((source:SignalSource* (alloc)))
-      (tfill! source sig phase starttime loop x y r)
+      (tfill! source sig phase invert starttime loop x y r)
       source)))
 
-(bind-func SignalSource_h:[SignalSource*,Wavetable*,float,float,bool,float,float,float]*
-  (lambda (sig phase starttime loop x y r)
+(bind-func SignalSource_h:[SignalSource*,Wavetable*,float,bool,float,bool,float,float,float]*
+  (lambda (sig phase invert starttime loop x y r)
     (let ((source:SignalSource* (halloc)))
-      (tfill! source sig phase starttime loop x y r)
+      (tfill! source sig phase invert starttime loop x y r)
       source)))
 
 
@@ -358,21 +314,33 @@
 (bind-func  wavetable:[Wavetable**,SignalSource*,Wavetable*]* (lambda (source value) (tset! source 0 value)))
 (bind-func  phase:[float,SignalSource*]* (lambda (source) (tref source 1)))
 (bind-func  phase:[float,SignalSource*,float]* (lambda (source value) (tset! source 1 value)))
-(bind-func  starttime:[float,SignalSource*]* (lambda (source) (tref source 2)))
-(bind-func  starttime:[float,SignalSource*,float]* (lambda (source value) (tset! source 2 value)))
-(bind-func  loop:[bool,SignalSource*]* (lambda (source) (tref source 3)))
-(bind-func  loop:[bool,SignalSource*,bool]* (lambda (source value) (tset! source 3 value)))
-(bind-func  position_x:[float,SignalSource*]* (lambda (source) (tref source 4)))
-(bind-func  position_x:[float,SignalSource*,float]* (lambda (source value) (tset! source 4 value)))
-(bind-func  position_y:[float,SignalSource*]* (lambda (source) (tref source 5)))
-(bind-func  position_y:[float,SignalSource*,float]* (lambda (source value) (tset! source 5 value)))
-(bind-func  radius:[float,SignalSource*]* (lambda (source) (tref source 6)))
-(bind-func  radius:[float,SignalSource*,float]* (lambda (source value) (tset! source 6 value)))
+(bind-func  invert:[bool,SignalSource*]* (lambda (source) (tref source 2)))
+(bind-func  invert:[bool,SignalSource*,bool]* (lambda (source value) (tset! source 2 value)))
+(bind-func  starttime:[float,SignalSource*]* (lambda (source) (tref source 3)))
+(bind-func  starttime:[float,SignalSource*,float]* (lambda (source value) (tset! source 3 value)))
+(bind-func  loop:[bool,SignalSource*]* (lambda (source) (tref source 4)))
+(bind-func  loop:[bool,SignalSource*,bool]* (lambda (source value) (tset! source 4 value)))
+(bind-func  position_x:[float,SignalSource*]* (lambda (source) (tref source 5)))
+(bind-func  position_x:[float,SignalSource*,float]* (lambda (source value) (tset! source 5 value)))
+(bind-func  position_y:[float,SignalSource*]* (lambda (source) (tref source 6)))
+(bind-func  position_y:[float,SignalSource*,float]* (lambda (source value) (tset! source 6 value)))
+(bind-func  radius:[float,SignalSource*]* (lambda (source) (tref source 7)))
+(bind-func  radius:[float,SignalSource*,float]* (lambda (source value) (tset! source 7 value)))
 
 (bind-func restart:[float,SignalSource*]*
   (lambda (src)
     (starttime src (fnow))))
 
+
+(bind-func print:[void,SignalSource*]*
+  (lambda (src:SignalSource*)
+    (printf "Wavetable: %lld  phase: %f  invert: %s  start:  %f  x:  %f  y: %f  r: %f"
+            (slot (wavetable src))
+            (ftod (phase src)) (if (invert src) "yes" "no") (ftod (starttime src))
+            (ftod (position_x src)) (ftod (position_y src))
+            (ftod (radius src)))
+    void))
+            
 
 
 ;;;;;; Now we set up our signal sources
@@ -397,34 +365,6 @@
       num_wavetables)))
 
 
-
-(bind-func add_point_source:[void,i64,float,float,float,float,float]*
-  (lambda (m:i64 phase:float starttime:float x:float y:float r:float)
-    (pset! sources num_sources (SignalSource_h (pref wavetables m) phase starttime #t x y r))
-    (set! num_sources (+ num_sources 1))
-    (initialise_acoustics_shaders)
-    void))
-
-
-;; (bind-func add_point_sources_to_signal:[void,i64,i64,float*,float*,float*,float*]*
-;;   (lambda (m:i64 num:i64 xs:float*  ys:float* rs:float* phases:float*)
-;;     (let ((i:i64 0) (st:float (fnow)) (sig:Signal* (pref signales m)) (d:float (duration sig)))
-;;       (dotimes (i num) 
-;;         (pset! sources num_sources (SignalSource_h (pref signales m) (+ st (* d (pref phases i))) #t (pref xs i) (pref ys i) (pref rs i)))
-;;         (set! num_sources (+ num_sources 1)))
-;;     void)))
-
-
-;;;;;;;;;
-;(add_sinewave 1.0 0.1 0.0)
-;($ (add_point_source 0 0.5 (fnow) cx cy 10.0))
-;($ (add_point_source 0 0.5 (fnow) 0.0 0.0 10.0))
-;($ (add_point_source_to_signal 0 cx (+ cy 10.0) 10.0))
-;(add_point_source_to_signal 0 300.0 200.0 20.0)
-;(add_point_source_to_signal 0 600.0 600.0 20.0)
-;(add_point_source_to_signal 0 200.0 600.0 20.0)
-
-
 (bind-func remove_all_sources
   (lambda ()
     (set! num_sources 0)
@@ -441,7 +381,95 @@
 ;(remove_all_signals)
 
 
+;;;;;;;;;;;;; main acoustics simulation program ;;;;;;;;;;;
+(bind-func initialise_acoustics_shaders:[void]*
+  (lambda ()
+    (set! acoustics_prog
+         (ShaderProgram_create
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/shaders/dipole.frag")))
+    (let* ((N:i64 13) (data:float* (alloc (* N 6 num_sources))) (tmp:float* data) (i:i64 0) (cc:i64 0))
+      (dotimes (i num_sources)
+        (let* ((source:SignalSource* (pref sources i))
+               (sig:Wavetable* (wavetable source))
+               (sl:i32 (i64toi32 (slot sig)))
+               (stt:float (starttime source))
+               (dur:float (duration sig))
+               (rad:float (radius source))
+               (phi:float (phase source))
+               (inv:float (if (invert source) -1.0 1.0))
+               (px:float (position_x source))
+               (py:float (position_y source))
+               (pz:float 0.0))
+                (pfill! tmp
+                ;; x     y                               location in room (in millimetres)                            px  py  pz  slot          start  dur  rad  phase  invert?
+                -1.     -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi      inv
+                -1.      1.     (* -1.0:float room_half_length) (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      inv
+                 1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      inv
+                 1.      1.     (* 1.0:float room_half_length)  (* 1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      inv
+                 1.     -1.     (* 1.0:float room_half_length) (* -1.0:float room_half_breadth)      px  py  pz  (i32tof sl)  stt   dur   rad   phi      inv
+                -1.    -1.     (* -1.0:float room_half_length) (* -1.0:float room_half_breadth)     px  py  pz  (i32tof sl)  stt   dur   rad   phi       inv
+                )
+                (set! tmp (pref-ptr tmp (* N 6)))
+                ))
+      (set! acoustics_vbo (VBO_create data (* N 6 num_sources)))
+      (set! acoustics_vao (VAO_create))
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 0 2 (i64toi32 N) 0)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 1 2 (i64toi32 N) 2)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 2 3 (i64toi32 N) 4)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 3 4 (i64toi32 N) 7)
+      (VAO_bind_attribute acoustics_vao acoustics_vbo 4 2 (i64toi32 N) 11)
+      ;(texture_bind_data_using_slot read_tex null L L 4 read_slot)
+      ;(texture_bind_data_using_slot render_tex null w h 4 render_slot)
+      (FBO_load_texture_to_colour_attachment_using_slot acoustics_fbo render_tex 0 render_slot)
+        ;(println (set! acoustics_fbo (FBO_create_with_textures w h #f)))
+    void)))
 
+(initialise_acoustics_shaders)
+
+
+;; this needs to come after the initialise_acoustics_shaders definition because it calls it.
+(bind-func add_point_source:[void,i64,float,bool,float,float,float,float]*
+  (lambda (m:i64 phase:float invert:bool starttime:float x:float y:float r:float)
+    (pset! sources num_sources (SignalSource_h (pref wavetables m) phase invert starttime #t x y r))
+    (set! num_sources (+ num_sources 1))
+    ;(initialise_acoustics_shaders)
+    void))
+
+
+;; (bind-func add_point_sources:[void,i64,i64,float*,float*,float*,float*,bool*]*
+;;   (lambda (m:i64 num:i64 xs:float* ys:float* rs:float* phases:float* inverts:bool*)
+;;     (let ((i:i64 0) (st:float (fnow)) (sig:Wavetable* (pref wavetables m)) (d:float (duration sig)))
+;;       (dotimes (i num) 
+;;         (pset! sources num_sources (SignalSource_h (pref wavetables m) (pref phases i) (pref inverts i) st  #t (pref xs i) (pref ys i) (pref rs i)))
+;;         (set! num_sources (+ num_sources 1)))
+;;       (initialise_acoustics_shaders)
+;;       void)))
+
+
+(bind-func add_horizontal_dipole:[void,i64,float,float,float,float]*
+  (lambda (m:i64 x:float y:float d:float r:float)
+    (let* ((h:float (/ d 2.0:float))
+           (x1:float (+ x h)) (x2:float (- x h))
+           (st1:float (fnow))
+           (tau:float (/ d c))
+           (st2 (+ st1 tau)))
+      (add_point_source m 0.0 #f st1 x1 y r)
+      (add_point_source m 0.0 #t st2 x2 y r)
+      (initialise_acoustics_shaders))))
+
+
+(bind-func add_vertical_dipole:[void,i64,float,float,float,float]*
+  (lambda (m:i64 x:float y:float d:float r:float)
+    (let* ((h:float (/ d 2.0:float))
+           (y1:float (+ y h)) (y2:float (- y h))
+           (st1:float (fnow))
+           (tau:float (/ d c))
+           (st2 (+ st1 tau)))
+      (add_point_source m 0.0 #f st1 x y1 r)
+      (add_point_source m 0.0 #t st2 x y2 r)
+      (initialise_acoustics_shaders))))
+      
 
 ;; (bind-func line_array:[i64,i64,float]*
 ;;   (lambda (n delta)
@@ -483,20 +511,20 @@
 
 (initialise_screen_shaders)
 
-(bind-func preview_texture2D:[void,Texture]*
-  (lambda (tex:Texture)
-    (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-    (glClearColor 0.0 0.0 0.0 1.0)
-    (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
-    (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
-    (glUseProgram screen_prog)
-    (glActiveTexture GL_TEXTURE0)
-    (glBindVertexArray (VAO_id screen_vao))
-    (glBindTexture GL_TEXTURE_2D tex)
-    (glDrawArrays GL_TRIANGLE_STRIP 0 4)
-    (glfwPollEvents)
-    (glfwSwapBuffers window)
-    void))
+;; (bind-func preview_texture2D:[void,Texture]*
+;;   (lambda (tex:Texture)
+;;     (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+;;     (glClearColor 0.0 0.0 0.0 1.0)
+;;     (glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
+;;     (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+;;     (glUseProgram screen_prog)
+;;     (glActiveTexture GL_TEXTURE0)
+;;     (glBindVertexArray (VAO_id screen_vao))
+;;     (glBindTexture GL_TEXTURE_2D tex)
+;;     (glDrawArrays GL_TRIANGLE_STRIP 0 4)
+;;     (glfwPollEvents)
+;;     (glfwSwapBuffers window)
+;;     void))
 
 
 ;;;;;;;;;; animation ;;;;;;;;;;
@@ -515,8 +543,6 @@
         (screenTexLoc (glGetUniformLocation screen_prog "tex")))
     (pset! colour_attachment_index 0 GL_COLOR_ATTACHMENT0)
     (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-    ;(glBindFramebuffer GL_DRAW_FRAMEBUFFER 0)
-    ;(glDisable GL_BLEND)
     (lambda ()
  
       ;; We will render into the first colour attachment of our acoustics framebuffer
@@ -524,11 +550,14 @@
       (glDrawBuffers 1 colour_attachment_index)
       (glEnable GL_BLEND)
       (glBlendEquation GL_FUNC_ADD)
-      (glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA)
+      (glBlendFunc GL_ONE GL_ONE)
+      (glDisable GL_DEPTH_TEST)
+      (glDisable GL_CULL_FACE)
+      (glDisable GL_STENCIL_TEST)
       
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
       (glClearColor 0.0 0.0 0.0 1.0)
-      (glClear GL_COLOR_BUFFER_BIT)
+      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
       ;; and this rendering will sample from our signal texture
       (glUseProgram acoustics_prog)
       (dotimes (i num_wavetables)
@@ -626,15 +655,17 @@
       (draw_loop.go:bool #f)
       void))))
 
-;(initialise_screen_shaders)
+(initialise_screen_shaders)
 (initialise_acoustics_shaders)
-;(frame_rate 100.0)
-($ (run_graphics #f))
+(frame_rate 100.0)
+($ (run_graphics #t))
 
-;(remove_all_signals)
-;(remove_all_sources)
-(add_sinewave 1.0 1.0 10.0)
-(add_point_source 0 0.0 (fnow) -100.0 0.0 10.0)
+(remove_all_signals)
+(remove_all_sources)
+(add_sinewave 2.0 5.0 0.0)
+(add_pulse 2.0 10.0 0.0)
+(add_point_source 0 0.0 0 (fnow) 0.0 0.0 10.0)
+(add_horizontal_dipole 0 0.0 0.0 250.0 10.0)
 
 (bind-func test_setup
   (lambda (m:i64 num:i64 r:float)

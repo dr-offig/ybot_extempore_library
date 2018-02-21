@@ -22,7 +22,7 @@ in vec3 source_position;   // position of speaker element in millimetres (from b
 in vec4 source_data;        // all lengths in millimetres, times in milliseconds
 in vec2 more_source_data; 
 
-out vec4 frag_colour = vec4(0.0, 0.0, 0.0, 0.0);
+out vec4 frag_colour = vec4(0.0, 0.0, 0.0, 0.5);
 
 float conform(float x){
   return 0.5 + tanh(x) / 2.;
@@ -43,6 +43,7 @@ void main() {
   float dur = source_data.b;
   float a = source_data.a;  // driver_radius in millimetres
   float phase = more_source_data.x;
+  float invert = more_source_data.y;
   float r = sqrt(dx*dx + dy*dy);
   float attenuation = a / r;
 
@@ -85,9 +86,9 @@ void main() {
   }
 
   if (r < a) {
-    frag_colour = vec4(0.0, 0.0, current.b, 0.5);
+    frag_colour = vec4(0.0, 0.0, current.b * invert, 0.5);
   } else if (r <= a + ct) {
-    frag_colour =  vec4(0.0, 0.0, retard.b * attenuation, 0.5);
+    frag_colour =  vec4(0.0, 0.0, retard.b * attenuation * invert, 0.5);
     //frag_colour = vec4(1.0,1.0,1.0,1.0);
   } else {
     frag_colour = vec4(0.0, 0.0, 0.0, 0.5);
