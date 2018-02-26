@@ -16,7 +16,7 @@ float conform(float x){
 
 vec4 HyperbolicGreyScale(float x){
   float y = conform(x);
-  return vec4(y,y,y,0.0);
+  return vec4(y,y,y,1.0);
 }
 
 vec3 HyperbolicRGB(vec3 v){

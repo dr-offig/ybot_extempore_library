@@ -166,7 +166,6 @@
         -1:i32)))))
 
 
-
 (bind-val velocity_potential_slot i32 0)
 (bind-val velocity_potential_attachment i32 0)
 (bind-val velocity_potential_tex Texture (Texture_create))
@@ -592,7 +591,7 @@
         (sf_attachment_index:GLenum* (alloc))
         (i:i64 0)
         (timeLoc (glGetUniformLocation acoustics_prog "time"))
-        ;(mmppLoc (glGetUniformLocation acoustics_prog "mmpp"))
+                ;(mmppLoc (glGetUniformLocation acoustics_prog "mmpp"))
         (wavetable0Loc (glGetUniformLocation acoustics_prog "wavetable0"))
         (wavetable1Loc (glGetUniformLocation acoustics_prog "wavetable1"))
         (wavetable2Loc (glGetUniformLocation acoustics_prog "wavetable2"))
@@ -601,8 +600,9 @@
         (wavetable5Loc (glGetUniformLocation acoustics_prog "wavetable5"))
         (wavetable6Loc (glGetUniformLocation acoustics_prog "wavetable6"))
         (wavetable7Loc (glGetUniformLocation acoustics_prog "wavetable7"))
-        (potentialLoc (glGetUniformLocation soundfield_prog "potential_tex"))
         (lastPotentialLoc (glGetUniformLocation soundfield_prog "last_potential_tex"))
+        (potentialLoc (glGetUniformLocation soundfield_prog "potential_tex"))
+        (dtLoc (glGetUniformLocation soundfield_prog "dt"))
         (screenTexLoc (glGetUniformLocation screen_prog "tex")))
     (pset! vp_attachment_index 0 (+ GL_COLOR_ATTACHMENT0 velocity_potential_attachment))
     (pset! lvp_attachment_index 0 (+ GL_COLOR_ATTACHMENT0 last_velocity_potential_attachment))
@@ -746,43 +746,5 @@
 (add_horizontal_dipole 0 0.0 0.0 250.0 10.0)
 (add_double_pole 0 -125.0 0.0 125.0 0.0 10.0 0.0 0)
 
-(bind-func test_setup
-  (lambda (m:i64 num:i64 r:float)
-    (let ((xs:float* (alloc num))
-           (ys:float* (alloc num))
-           (rs:float* (alloc num))
-           (phases:float* (alloc num))
-           (i:i64 0))
-      (remove_all_sources)
-      (dotimes (i num)
-        (pset! xs i (* width (random)))
-        (pset! ys i (* height (random)))
-        (pset! rs i r)
-        (pset! phases i (random)))
-      
-      (add_point_sources_to_signal m num xs ys rs phases)
-      (initialise_acoustics_shaders)
-      void)))
 
-(test_setup 0 20 20.0)
-
-
-(bind-func test_dipole_2
-  (lambda (m:i64 r:float d:float)
-    (let ((xs:float* (alloc 2))
-           (ys:float* (alloc 2))
-           (rs:float* (alloc 2))
-           (phases:float* (alloc 2)))
-      (remove_all_sources)
-      (pfill! xs cx (+ cx d))
-      (pfill! ys cy cy)
-      (pfill! rs r r)
-      (pfill! phases 0.0:float 0.5:float)
-      (add_point_sources_to_signal m 2 xs ys rs phases)
-      (initialise_acoustics_shaders)
-      void)))
-
-(test_dipole_2 0 50.0 100.0)
-
-
-(define *xtmlib-ybot_acoustics-loaded* #t)
+(define *xtmlib-ybot_dipole-loaded* #t)
