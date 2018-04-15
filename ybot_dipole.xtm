@@ -2,13 +2,36 @@
 (define *xtmlib-ybot_dipole-loaded* #f)
 
 (impc:aot:suppress-aot-do
+ (sys:load "libs/external/sndfile.xtm")
  (sys:load "libs/external/gl/gl-objects.xtm")
  (sys:load "libs/external/glfw3.xtm"))
 (impc:aot:insert-forms
+ (sys:load "libs/external/sndfile.xtm")
  (sys:load "libs/external/gl/gl-objects.xtm")
  (sys:load "libs/external/glfw3.xtm"))
 
 
+;;;;;;;;;;;;; Audio stuff ;;;;;;;;;;;;;
+(bind-func load_mono:[i64,i8*,i64,float**]*
+  (lambda (filepath channel pBuffer)
+    (let* ((nchan:i64 (i32toi64 (sf_channels_from_file filepath)))
+           (nframes:i64 (sf_frames_from_file filepath))
+           (nsamp:i64 (* nchan nframes))
+           (audio_data:SAMPLE* (zalloc nsamp))
+           (mono_data:float* (zalloc nframes))
+           (samples_read (sf_read_file_into_buffer filepath audio_data 0 nframes #t))
+           (f 0) (i 0))
+      (if (< samples_read 0)
+          (printf "Error reading audio file.\n"))
+      (dotimes (f nframes)
+        (dotimes (i nchan)
+          (if (= i channel)
+              (pset! mono_data f (convert (pref audio_data (+ (* nchan f) i)))))))
+      nframes)))
+    
+    
+
+    
 ;;;;;;;;;;;;;;; Overrides of library functions ;;;;;;;;;;;
 ;; this function from gl-objects is over-ridden here to suppress logging output
 (bind-func VBO_create
@@ -303,6 +326,41 @@
       #f))))
 
 
+(bind-func soundfile_in_wavetable:[bool,i64,i8*,float]*
+  (lambda (m:i64 filename:i8* gain:float)
+    (cond
+     ((< m 8)
+      (let* ((n:i64 wavetable_length)
+             (sig:Wavetable* (pref wavetables m))
+             (audio_tex:Texture (tex sig))
+             (sl:i64 (slot sig))
+             (data:float* (alloc (* 4 n)))
+             (i:i64 0) (cc:i64 0) (max_level:float 0.0)
+             (pBuffer:float** null)
+             (sz:i64 (load_mono filename 0 pBuffer))
+             (mono_data:float* (pref pBuffer 0)))
+        (dotimes (i n)
+          (cond
+           ((< i sz)
+            (let ((val:float (* gain (pref mono_data i))))
+              (printf " %f " (ftod val))
+              (pset! data cc val) (set! cc (+ cc 1))
+              (pset! data cc val) (set! cc (+ cc 1))
+              (pset! data cc val) (set! cc (+ cc 1))
+              (pset! data cc val) (set! cc (+ cc 1))))
+           (else 
+              (pset! data cc 0.0) (set! cc (+ cc 1))
+              (pset! data cc 0.0) (set! cc (+ cc 1))
+              (pset! data cc 0.0) (set! cc (+ cc 1))
+              (pset! data cc 0.0) (set! cc (+ cc 1)))))
+          (texture1D_update_data audio_tex data #t (i64toi32 n) (i64toi32 sl))
+          (printf "Maximum level is %f\n" (ftod max_level))
+          #t))
+      (else
+       (println "Cannot use wavetable slot" m "as there are only 8 slots")
+       #f))))
+
+
 (bind-func add_sinewave:[i64,float,float,float]*
   (lambda (freq amp phase)
     (let ((dur:float (/ 1.0:float freq)))
@@ -320,6 +378,15 @@
       (set! num_wavetables (+ num_wavetables 1))
       num_wavetables)))
 
+
+(bind-func add_sound_file:[i64,i8*,float,i64]*
+  (lambda (filename:i8* gain:float sr:i64 )
+    (let ((dur:float (/ (i64tof wavetable_length) (i64tof sr))))
+      (soundfile_in_wavetable num_wavetables filename gain)
+      (duration (pref wavetables num_wavetables) dur)
+      (set! num_wavetables (+ num_wavetables 1))
+      num_wavetables)))
+    
 
 
 ;; SignalSource type:  Wavetable, phase (0.0 -- 1.0), invert?, starttime (ms), loop?, x, y, radius
@@ -535,6 +602,7 @@
         (sf_attachment_index:GLenum* (alloc))
         (i:i64 0)
         (timeLoc (glGetUniformLocation acoustics_prog "time"))
+        (fssLoc (glGetUniformLocation acoustics_prog "first_signal_slot"))
                 ;(mmppLoc (glGetUniformLocation acoustics_prog "mmpp"))
         (wavetable0Loc (glGetUniformLocation acoustics_prog "wavetable0"))
         (wavetable1Loc (glGetUniformLocation acoustics_prog "wavetable1"))
@@ -554,13 +622,6 @@
     (glClampColor GL_CLAMP_READ_COLOR 0:i32)
     (lambda ()
 
-      ;; TODO - read in the velocity potential and store as last velocity potential
-      ;; ;; Copy the rendered texture (render_tex) into the read texture (read_tex)
-      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
-      (glBindTexture GL_TEXTURE_2D velocity_potential_tex)
-      (glActiveTexture (+ GL_TEXTURE0 last_velocity_potential_slot))
-      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-      (glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F 0 0 w h 0)
       
       ;; We will render into the first colour attachment of our acoustics framebuffer
       (glBindFramebuffer GL_DRAW_FRAMEBUFFER (FBO_id acoustics_fbo))
@@ -584,23 +645,45 @@
           (glActiveTexture (+ GL_TEXTURE0 sl))
           (glBindTexture GL_TEXTURE_1D tx)))
       (glUniform1f timeLoc (fnow))
+      (glUniform1i fssLoc first_free_slot)
       ;;(glUniform1f mmppLoc (fnow))
-      (glUniform1i wavetable0Loc 3:i32)
-      (glUniform1i wavetable1Loc 4:i32)
-      (glUniform1i wavetable2Loc 5:i32)
-      (glUniform1i wavetable3Loc 6:i32)
-      (glUniform1i wavetable4Loc 7:i32)
-      (glUniform1i wavetable5Loc 8:i32)
-      (glUniform1i wavetable6Loc 9:i32)
-      (glUniform1i wavetable7Loc 10:i32)
+      (glUniform1i wavetable0Loc first_free_slot)
+      (glUniform1i wavetable1Loc (+ first_free_slot 1:i32))
+      (glUniform1i wavetable2Loc (+ first_free_slot 2:i32))
+      (glUniform1i wavetable3Loc (+ first_free_slot 3:i32))
+      (glUniform1i wavetable4Loc (+ first_free_slot 4:i32))
+      (glUniform1i wavetable5Loc (+ first_free_slot 5:i32))
+      (glUniform1i wavetable6Loc (+ first_free_slot 6:i32))
+      (glUniform1i wavetable7Loc (+ first_free_slot 7:i32))
       (glBindVertexArray (VAO_id acoustics_vao))
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
       (glDrawArrays GL_TRIANGLES 0 (i64toi32 (* 6 num_sources)))
 
       ;; calculate the soundfield from the velocity potential
-      ;;(glDrawBuffers 1 sf_attachment_index)
-      
+      (glDrawBuffers 1 sf_attachment_index)
+      (glClearColor 0.0 0.0 0.0 1.0)
+      (glClear (bor GL_COLOR_BUFFER_BIT GL_DEPTH_BUFFER_BIT))
+    ;;
+      (glUseProgram soundfield_prog)
+      (glBindVertexArray (VAO_id soundfield_vao))
+      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      (glUniform1i potentialLoc velocity_potential_slot)
+      (glUniform1i lastPotentialLoc last_velocity_potential_slot)
+      (glUniform1f dtLoc FRAMEDELTA)
+      ;(glPointSize (i32tof L))
+    ;; draw the quad
+      (glDrawArrays GL_TRIANGLE_STRIP 0 4)
 
+
+      ;; TODO - read in the velocity potential and store as last velocity potential
+      ;; ;; Copy the rendered texture (render_tex) into the read texture (read_tex)
+      (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
+      (glReadBuffer (pref vp_attachment_index 0))
+      ;(glBindTexture GL_TEXTURE_2D velocity_potential_tex)
+      (glActiveTexture (+ GL_TEXTURE0 last_velocity_potential_slot))
+      (glBindTexture GL_TEXTURE_2D last_velocity_potential_tex)
+      (glClampColor GL_CLAMP_READ_COLOR 0:i32)
+      (glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F 0 0 w h 0)
 
       
         ;; ;; Rebind the default buffer, which also unbinds the compute framebuffer
@@ -786,6 +869,7 @@
 (toggle_graphics)
 (clear_signals)
 (clear_sources)
+($ (add_sound_file  "/Users/ybot/Downloads/SN931A_Perfect.wav" 1.0 96000))
 (add_sinewave 2.0 1.0 0.0)
 (add_pulse 2.0 10.0 0.0)
 (add_monopole 0 0.0 0.0 10.0)
