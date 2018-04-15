@@ -181,8 +181,7 @@
 (bind-val soundfield_tex Texture (Texture_create))
 ($ (texture2D_bind_data_using_slot soundfield_tex null w h 4 soundfield_slot))
 
-
-
+(bind-val first_free_slot i32 3)
 
 
 ;;;;;;;;;;;;; Each quad is a soundsphere ;;;;;;;;;
@@ -199,8 +198,6 @@
 (bind-func fnow:[float]*
   (lambda ()
     (/ (i64tof (now)) (/ SRf 1.0:float))))
-
-
 
 
 
@@ -244,7 +241,7 @@
   (lambda ()
     (let ((i:i64 0))
       (dotimes (i 8)
-        (pset! wavetables i (Wavetable_create #t wavetable_length (+ i 1))))
+        (pset! wavetables i (Wavetable_create #t wavetable_length (+ i (i32toi64 first_free_slot)))))
       void)))
 (create_wavetables)
 
@@ -272,7 +269,6 @@
      (else
       (println "Cannot use signal slot" m "as there are only 8 slots")
       #f))))
-
 
 
 (bind-func pulse_in_wavetable:[bool,i64,float,float,float]*
@@ -305,7 +301,25 @@
      (else
       (println "Cannot use wavetable slot" m "as there are only 8 slots")
       #f))))
-        
+
+
+(bind-func add_sinewave:[i64,float,float,float]*
+  (lambda (freq amp phase)
+    (let ((dur:float (/ 1.0:float freq)))
+      (sinewave_in_wavetable num_wavetables freq amp phase)
+      (duration (pref wavetables num_wavetables) dur)
+      (set! num_wavetables (+ num_wavetables 1))
+      num_wavetables)))
+
+
+(bind-func add_pulse:[i64,float,float,float]*
+  (lambda (freq amp phase)
+    (let ((dur:float (/ 1.0:float freq)))
+      (pulse_in_wavetable num_wavetables freq amp phase)
+      (duration (pref wavetables num_wavetables) dur)
+      (set! num_wavetables (+ num_wavetables 1))
+      num_wavetables)))
+
 
 
 ;; SignalSource type:  Wavetable, phase (0.0 -- 1.0), invert?, starttime (ms), loop?, x, y, radius
@@ -356,27 +370,9 @@
             
 
 
-;;;;;; Now we set up our signal sources
+;;;;;; We can have up to 2048 point sources (each will have its own quad) ;;;
 (bind-val sources SignalSource** 2048)
 (bind-val num_sources i64 0)
-
-(bind-func add_sinewave:[i64,float,float,float]*
-  (lambda (freq amp phase)
-    (let ((dur:float (/ 1.0:float freq)))
-      (sinewave_in_wavetable num_wavetables freq amp phase)
-      (duration (pref wavetables num_wavetables) dur)
-      (set! num_wavetables (+ num_wavetables 1))
-      num_wavetables)))
-
-
-(bind-func add_pulse:[i64,float,float,float]*
-  (lambda (freq amp phase)
-    (let ((dur:float (/ 1.0:float freq)))
-      (pulse_in_wavetable num_wavetables freq amp phase)
-      (duration (pref wavetables num_wavetables) dur)
-      (set! num_wavetables (+ num_wavetables 1))
-      num_wavetables)))
-
 
 (bind-func remove_all_sources
   (lambda ()
@@ -392,6 +388,15 @@
     void))
 
 ;(remove_all_signals)
+
+
+;; Don't call this directly, rather use the add_monopole or add_dipole functions below
+;; because they wrap calls with (run_graphics #f) ... (run_graphics #t) for thread safety
+(bind-func add_point_source:[void,i64,float,bool,float,float,float,float]*
+  (lambda (m:i64 phase:float invert:bool starttime:float x:float y:float r:float)
+    (pset! sources num_sources (SignalSource_h (pref wavetables m) phase invert starttime #t x y r))
+    (set! num_sources (+ num_sources 1))
+    void))
 
 
 ;;;;;;;;;;;;; main acoustics simulation program ;;;;;;;;;;;
@@ -443,68 +448,7 @@
 (initialise_acoustics_shaders)
 
 
-;; this needs to come after the initialise_acoustics_shaders definition because it calls it.
-(bind-func add_point_source:[void,i64,float,bool,float,float,float,float]*
-  (lambda (m:i64 phase:float invert:bool starttime:float x:float y:float r:float)
-    (pset! sources num_sources (SignalSource_h (pref wavetables m) phase invert starttime #t x y r))
-    (set! num_sources (+ num_sources 1))
-    ;(initialise_acoustics_shaders)
-    void))
 
-
-;; (bind-func add_point_sources:[void,i64,i64,float*,float*,float*,float*,bool*]*
-;;   (lambda (m:i64 num:i64 xs:float* ys:float* rs:float* phases:float* inverts:bool*)
-;;     (let ((i:i64 0) (st:float (fnow)) (sig:Wavetable* (pref wavetables m)) (d:float (duration sig)))
-;;       (dotimes (i num) 
-;;         (pset! sources num_sources (SignalSource_h (pref wavetables m) (pref phases i) (pref inverts i) st  #t (pref xs i) (pref ys i) (pref rs i)))
-;;         (set! num_sources (+ num_sources 1)))
-;;       (initialise_acoustics_shaders)
-;;       void)))
-
-
-(bind-func add_horizontal_dipole:[void,i64,float,float,float,float]*
-  (lambda (m:i64 x:float y:float d:float r:float)
-    (let* ((h:float (/ d 2.0:float))
-           (x1:float (+ x h)) (x2:float (- x h))
-           (st1:float (fnow))
-           (tau:float (/ d c))
-           (st2 (+ st1 tau)))
-      (add_point_source m 0.0 #f st1 x1 y r)
-      (add_point_source m 0.0 #t st2 x2 y r)
-      (initialise_acoustics_shaders))))
-
-
-(bind-func add_vertical_dipole:[void,i64,float,float,float,float]*
-  (lambda (m:i64 x:float y:float d:float r:float)
-    (let* ((h:float (/ d 2.0:float))
-           (y1:float (+ y h)) (y2:float (- y h))
-           (st1:float (fnow))
-           (tau:float (/ d c))
-           (st2 (+ st1 tau)))
-      (add_point_source m 0.0 #f st1 x y1 r)
-      (add_point_source m 0.0 #t st2 x y2 r)
-      (initialise_acoustics_shaders))))
-      
-
-(bind-func add_double_pole:[void,i64,float,float,float,float,float,float,bool]*
-  (lambda (m:i64 x1:float y1:float x2:float y2:float r:float delay_distance:float invert:bool)
-    (let* ((tau:float (/ delay_distance c))
-           (st1:float (fnow))
-           (st2 (+ st1 tau)))
-      (add_point_source m 0.0 #f st1 x1 y1 r)
-      (add_point_source m 0.0 invert st2 x2 y2 r)
-      (initialise_acoustics_shaders))))
-
-
-;; (bind-func line_array:[i64,i64,float]*
-;;   (lambda (n delta)
-;;     (let ((i:i64 0))
-;;       (dotimes (i n)
-;;         (add_point_source 0 0.0 (+ 200.0 (* (i64tof i) delta)) 200.0 10.0))
-;;       (initialise_acoustics_shaders)
-;;       n)))
-
-;(line_array 20 5.0)
 
 
 ;;;;;;;;;; Soundfield calculation (from velocity potential) ;;;;;;;;;
@@ -613,7 +557,7 @@
       ;; TODO - read in the velocity potential and store as last velocity potential
       ;; ;; Copy the rendered texture (render_tex) into the read texture (read_tex)
       (glBindFramebuffer GL_READ_FRAMEBUFFER (FBO_id acoustics_fbo))
-      (glBindTexture GL_TEXTURE_2D potential_tex)
+      (glBindTexture GL_TEXTURE_2D velocity_potential_tex)
       (glActiveTexture (+ GL_TEXTURE0 last_velocity_potential_slot))
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
       (glCopyTexImage2D GL_TEXTURE_2D 0 GL_RGBA32F 0 0 w h 0)
@@ -654,7 +598,7 @@
       (glDrawArrays GL_TRIANGLES 0 (i64toi32 (* 6 num_sources)))
 
       ;; calculate the soundfield from the velocity potential
-      (glDrawBuffers 1 sf_attachment_index)
+      ;;(glDrawBuffers 1 sf_attachment_index)
       
 
 
@@ -680,9 +624,9 @@
     ;; bind the chosen texture to display
       ;;(glBindTexture GL_TEXTURE_2D (FBO_color_texture acoustics_fbo))
       (glClampColor GL_CLAMP_READ_COLOR 0:i32)
-      (glActiveTexture (+ GL_TEXTURE0 render_slot))
-      (glBindTexture GL_TEXTURE_2D render_tex)
-      (glUniform1i screenTexLoc render_slot)
+      (glActiveTexture (+ GL_TEXTURE0 velocity_potential_slot))
+      (glBindTexture GL_TEXTURE_2D velocity_potential_tex)
+      (glUniform1i screenTexLoc velocity_potential_slot)
       ;(glPointSize (i32tof L))
     ;; draw the quad
       (glDrawArrays GL_TRIANGLE_STRIP 0 4)
@@ -734,16 +678,118 @@
       (draw_loop.go:bool #f)
       void))))
 
-(initialise_screen_shaders)
-(initialise_acoustics_shaders)
+
+(bind-func toggle_graphics
+  (lambda ()
+    (if (or (not (draw_loop.initialised:bool)) (not (draw_loop.go:bool)))
+        (run_graphics #t)
+        (run_graphics #f))))
+
+
+;;;;;;; Here are functions for laying out point sources to emit signals ;;;;;;;
+(bind-func add_monopole:[void,i64,float,float,float]*
+  (lambda (m:i64 x:float y:float r:float)
+    (let* ((st:float (fnow)))
+      (run_graphics #f)
+      (add_point_source m 0.0 #f st x y r)
+      (initialise_acoustics_shaders)
+      (run_graphics #t))))
+
+(bind-func add_horizontal_dipole:[void,i64,float,float,float,float]*
+  (lambda (m:i64 x:float y:float d:float r:float)
+    (let* ((h:float (/ d 2.0:float))
+           (x1:float (+ x h)) (x2:float (- x h))
+           (st1:float (fnow))
+           (tau:float (/ d c))
+           (st2 (+ st1 tau)))
+      (run_graphics #f)
+      (add_point_source m 0.0 #f st1 x1 y r)
+      (add_point_source m 0.0 #t st2 x2 y r)
+      (initialise_acoustics_shaders)
+      (run_graphics #t))))
+
+
+(bind-func add_vertical_dipole:[void,i64,float,float,float,float]*
+  (lambda (m:i64 x:float y:float d:float r:float)
+    (let* ((h:float (/ d 2.0:float))
+           (y1:float (+ y h)) (y2:float (- y h))
+           (st1:float (fnow))
+           (tau:float (/ d c))
+           (st2 (+ st1 tau)))
+      (run_graphics #f)
+      (add_point_source m 0.0 #f st1 x y1 r)
+      (add_point_source m 0.0 #t st2 x y2 r)
+      (initialise_acoustics_shaders)
+      (run_graphics #t))))
+      
+
+(bind-func add_double_pole:[void,i64,float,float,float,float,float,float,bool]*
+  (lambda (m:i64 x1:float y1:float x2:float y2:float r:float delay_distance:float invert:bool)
+    (let* ((tau:float (/ delay_distance c))
+           (st1:float (fnow))
+           (st2 (+ st1 tau)))
+      (run_graphics #f)
+      (add_point_source m 0.0 #f st1 x1 y1 r)
+      (add_point_source m 0.0 invert st2 x2 y2 r)
+      (initialise_acoustics_shaders)
+      (run_graphics #t)
+      )))
+
+
+;; (bind-func add_point_sources:[void,i64,i64,float*,float*,float*,float*,bool*]*
+;;   (lambda (m:i64 num:i64 xs:float* ys:float* rs:float* phases:float* inverts:bool*)
+;;     (let ((i:i64 0) (st:float (fnow)) (sig:Wavetable* (pref wavetables m)) (d:float (duration sig)))
+;;       (dotimes (i num) 
+;;         (pset! sources num_sources (SignalSource_h (pref wavetables m) (pref phases i) (pref inverts i) st  #t (pref xs i) (pref ys i) (pref rs i)))
+;;         (set! num_sources (+ num_sources 1)))
+;;       (initialise_acoustics_shaders)
+;;       void)))
+
+;; (bind-func line_array:[i64,i64,float]*
+;;   (lambda (n delta)
+;;     (let ((i:i64 0))
+;;       (dotimes (i n)
+;;         (add_point_source 0 0.0 (+ 200.0 (* (i64tof i) delta)) 200.0 10.0))
+;;       (initialise_acoustics_shaders)
+;;       n)))
+
+;(line_array 20 5.0)
+
+
+(bind-func clear_sources
+  (lambda ()
+    (run_graphics #f)
+    (remove_all_sources)
+    (initialise_acoustics_shaders)
+    (run_graphics #t)))
+
+(bind-func clear_signals
+  (lambda ()
+    (run_graphics #f)
+    (remove_all_signals)
+    (initialise_acoustics_shaders)
+    (run_graphics #t)))
+
+(bind-func reset_shaders
+  (lambda ()
+    (run_graphics #f)
+    (initialise_acoustics_shaders)
+    (initialise_screen_shaders)
+    (run_graphics #t)))
+
+
+;;(initialise_screen_shaders)
+;;(initialise_acoustics_shaders)
 (frame_rate 100.0)
-($ (run_graphics #f))
-(remove_all_signals)
-(remove_all_sources)
-(add_sinewave 2.0 5.0 0.0)
+(reset_shaders)
+($ (run_graphics #t))
+(toggle_graphics)
+(clear_signals)
+(clear_sources)
+(add_sinewave 2.0 1.0 0.0)
 (add_pulse 2.0 10.0 0.0)
-(add_point_source 0 0.0 0 (fnow) 0.0 0.0 10.0)
-(add_horizontal_dipole 0 0.0 0.0 250.0 10.0)
+(add_monopole 0 0.0 0.0 10.0)
+(add_vertical_dipole 0 0.0 0.0 250.0 10.0)
 (add_double_pole 0 -125.0 0.0 125.0 0.0 10.0 0.0 0)
 
 

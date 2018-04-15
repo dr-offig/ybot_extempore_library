@@ -1,6 +1,6 @@
 #version 400
 
-
+uniform int first_signal_slot;
 uniform float time;
 //uniform float Lm;
 //uniform float L;
@@ -38,14 +38,18 @@ void main() {
   float dx = x - source_position.x;
   float dy = y - source_position.y;
 
-  int slot = int(round(source_data.r));     // which wavetable to look up
+  int slot = int(round(source_data.r));    // which wavetable to look up
   float starttime = source_data.g;           
   float dur = source_data.b;
   float a = source_data.a;  // driver_radius in millimetres
   float phase = more_source_data.x;
   float invert = more_source_data.y;
   float r = sqrt(dx*dx + dy*dy);
-  float attenuation = a / r;
+  float attenuation;
+  if (a < r)
+    attenuation = a / r;
+  else
+    attenuation = 1.0;
 
   float t = (time - starttime);
   float ct = c * t;
@@ -56,28 +60,28 @@ void main() {
   vec4 current = texture(wavetable0, current_phase);
   vec4 retard = texture(wavetable0, retarded_phase);
   
-  if (slot == 1){
+  if (slot == first_signal_slot){
     current = texture(wavetable0,current_phase);
     retard = texture(wavetable0, retarded_phase);
-  } else if (slot == 2) {
+  } else if (slot == first_signal_slot + 1) {
     current = texture(wavetable1,current_phase);
     retard = texture(wavetable1, retarded_phase);
-  } else if (slot == 3) {
+  } else if (slot == first_signal_slot + 2) {
     current = texture(wavetable2,current_phase);
     retard = texture(wavetable2, retarded_phase);
-  } else if (slot == 4) {
+  } else if (slot == first_signal_slot + 3) {
     current = texture(wavetable3,current_phase);
     retard = texture(wavetable3, retarded_phase);
-  } else if (slot == 5) {
+  } else if (slot == first_signal_slot + 4) {
     current = texture(wavetable4,current_phase);
     retard = texture(wavetable4, retarded_phase);
-  } else if (slot == 6) {
+  } else if (slot == first_signal_slot + 5) {
     current = texture(wavetable5,current_phase);
     retard = texture(wavetable5, retarded_phase);
-  } else if (slot == 7) {
+  } else if (slot == first_signal_slot + 6) {
     current = texture(wavetable6,current_phase);
     retard = texture(wavetable6, retarded_phase);
-  } else if (slot == 8) {
+  } else if (slot == first_signal_slot + 7) {
     current = texture(wavetable7,current_phase);
     retard = texture(wavetable7, retarded_phase);
   } else {
@@ -94,7 +98,7 @@ void main() {
     frag_colour = vec4(0.0, 0.0, 0.0, 0.5);
   }
 
-  //frag_colour = vec4(current.b, 0.0, 0.0, 1.0);
 
+  //frag_colour = vec4(attenuation, 0.0, 0.0, 1.0);
   
 }
