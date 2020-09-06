@@ -58,8 +58,8 @@
 (bind-func address:[OSCAddress*,OSCMessage*,OSCAddress*]* (lambda (msg a) (tset! msg 0 a)))
 (bind-func typestring:[OSCTypeString*,OSCMessage*]* (lambda (msg) (tref msg 1)))
 (bind-func typestring:[OSCTypeString*,OSCMessage*,OSCTypeString*]* (lambda (msg t) (tset! msg 1 t)))
-(bind-func arglist:[List{Variant*}*,OSCMessage*]* (lambda (msg) (tref msg 0)))
-(bind-func arglist:[List{Variant*}*,OSCMessage*,OSCAddress*]* (lambda (msg a) (tset! msg 0 a)))
+(bind-func arglist:[List{Variant*}*,OSCMessage*]* (lambda (msg) (tref msg 2)))
+(bind-func arglist:[List{Variant*}*,OSCMessage*,List{Variant*}*]* (lambda (msg a) (tset! msg 2 a)))
 
   
 ;; OSCTimeTag
@@ -288,11 +288,11 @@
 ;;         ))))
 
 
-;;;;;;;;;;;;;;; Example Usage ;;;;;;;;;;;;;;;
-;(io:osc:start-server 8000
-;                     (impc:ti:get-mono-name osc_receive)
-;                     (llvm:get-function-pointer
-;                      (impc:ti:get-native-name osc_receive)))
+;; ;;;;;;;;;;;;;;; Example Usage ;;;;;;;;;;;;;;;
+;; (io:osc:start-server 8000
+;;                      (impc:ti:get-mono-name osc_receive)
+;;                      (llvm:get-function-pointer
+;;                       (impc:ti:get-native-name osc_receive)))
 
 
 (set! *xtmlib-ybot_osc-loaded* #t)
