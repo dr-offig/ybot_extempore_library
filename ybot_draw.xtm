@@ -1,30 +1,30 @@
-;; Include guard
-(if (and (defined? '*xtmlib-ybot-draw-loaded*) *xtmlib-ybot-draw-loaded*)
-    (sys:load-escape "ybot_draw library already loaded"))
-(define *xtmlib-ybot-draw-loaded* #f)
+;; lib-loading config
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_draw.xtm" 'quiet))
+(sys:load-preload-check 'ybot_draw)
+(define *xtmlib-ybot_draw-loaded* #t)
 
-;(define *ybot-lib-dir* "/Users/s2805534/Dropbox/ybot/src/extempore_libs")
-;(if (not (defined? '*ybot-lib-dir*))
-;   (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;(sys:load (string-append *ybot-lib-dir* "/samplerate.xtm"))
+(impc:aot:suppress-aot-do
+ (sys:load "libs/external/glfw3.xtm")
+ (sys:load "libs/core/math.xtm"))
+(impc:aot:insert-forms
+ (sys:load "libs/external/glfw3.xtm" 'quiet)
+ (sys:load "libs/core/math.xtm" 'quiet))
 
+(impc:aot:insert-header "xtmybot_draw")
+(impc:aot:import-ll "xtmybot_draw")
 
-;; Required dylibs: libglfw3, libnanovg
-(sys:load "libs/external/glfw3.xtm")
-(sys:load "libs/core/math.xtm")
-
-;(bind-val width float 800.)
-;(bind-val height float 600.)
-
-;; (bind-val window GLFWwindow*
-;;   (begin
-;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-;;     (glfw_init_and_create_interaction_window (convert width) (convert height))))
+(bind-val width float 800.)
+(bind-val height float 600.)
 
 (bind-val window GLFWwindow*
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_fullscreen_interaction_window)))
+    (glfw_init_and_create_interaction_window (convert width) (convert height))))
+
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_fullscreen_window 0)))
 
 ;; Note that we must only load and intitialise nanovg after creating a window
 (sys:load "libs/external/nanovg.xtm")
@@ -33,12 +33,11 @@
 (bind-val vg NVGcontext* (nvg_create_context))
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
 
-(bind-val width float (glfw_get_window_width window))
-(bind-val height float (glfw_get_window_height window))
+;;(bind-val width float (glfw_get_window_width window))
+;;(bind-val height float (glfw_get_window_height window))
 
 (bind-val cx float (/ width 2.0:float))
 (bind-val cy float (/ height 2.0:float))
-
 
 (bind-val FRAMERATE float 25.)
 (bind-val FRAMEDURATION float (/ 1. FRAMERATE))
@@ -379,4 +378,3 @@
    (println "nvg_draw_loop callback stopped")
    void))
 
-(set! *xtmlib-ybot-draw-loaded* #t)

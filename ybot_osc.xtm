@@ -1,13 +1,14 @@
-(sys:load "libs/aot-cache/ybot_osc.xtm" 'quiet)
+;; lib-loading config
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_osc.xtm" 'quiet))
 (sys:load-preload-check 'ybot_osc)
-(define *xtmlib-ybot_osc-loaded* #f)
+(define *xtmlib-ybot_osc-loaded* #t)
 
-(impc:aot:suppress-aot-do
- (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
-(impc:aot:insert-forms
- (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
+(impc:aot:suppress-aot-do (sys:load "libs/contrib/ybot/ybot_adt.xtm"))
+(impc:aot:insert-forms (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
 
 (impc:aot:insert-header "xtmybot_osc")
+(impc:aot:import-ll "xtmybot_osc")
+
 
 
 ;; OSCAddress is just the address string part i.e. /analogue/accX
@@ -47,7 +48,6 @@
     (and (equal (ip host) test_ip) (= (port host) test_port))))
     
 
-
       
 ;; OSCTypeString, i.e. ",fiffs"
 (bind-alias OSCTypeString String)
@@ -72,6 +72,8 @@
 (bind-type OSCBundleElement <i32,OSCMessage*,i8*>)
 (bind-type OSCBundle <OSCTimeTag,List{OSCBundleElement*}*>)
 
+
+;; ------ Sending OSC ------ ;;
 
 (bind-func send:[void,OSCHost*,OSCMessage*]*
   (let* ((data:i8* (alloc 8192)) (sz:i64 0) (tapehead:i8* data)
@@ -115,12 +117,21 @@
                        ((= 0:i32 (strcmp type "i32"))
                         (let ((q:i32* (salloc)))
                           (pset! q 0 (swap32i (pref (cast p i32*) 0)))
-                          (processPadded (cast q i8*) s)))
+                          (processUnpadded (cast q i8*) s)))
                        ((= 0:i32 (strcmp type "float"))
                         (let ((q:i32* (salloc)))
                           (pset! q 0 (swap32f (pref (cast p float*) 0)))
                           (processPadded (cast q i8*) s)))
+                       ((= 0:i32 (strcmp type "blob"))
+                        (let ((blobSize:i32 (convert s))
+                              (bsz:i32* (salloc)))
+                          (pset! bsz 0 (swap32i blobSize))
+                          (processUnpadded (cast bsz i8*) 4)
+                          (processPadded p s)))
+                       ((= 0:i32 (strcmp type "cstr"))
+                        (processPadded p s))
                        (else
+                        (println "OSC ERROR: argument has unexpected variant type " type)
                         (processPadded p s)))
                       (loop (cdr tmp))))
                    (else void)))))
@@ -170,6 +181,80 @@
            (m:OSCMessage* (OSCMessage a t args)))
       (send h m))))
 
+
+;; ------- Plotting via OSC -------- ;;
+(bind-func random_string:[i8*,i64]*
+  (lambda (n)
+    (let* ((output:i8* (alloc n))
+           (loop:[void,i64]*
+            (lambda (i:i64)
+              (cond 
+               ((< i n)
+                (let* ((r:double (* 25.0 (random)))
+                       (e:i8 (convert r))
+                       (c:i8 (+ e 97)))
+                    (pset! output i c)
+                    (loop (+ i 1))))
+               (else void)))))
+          (loop 0)
+          output)))
+                    
+
+(bind-func osc_plotter_c:[[void,float*,i64,i64,i8*,i64]*,i8*,i64]*
+  (lambda (ip port)
+    (lambda (data rows cols type pane)
+      (let* ((N:i64 (* rows cols))
+             (dataByteSz (* 4 N))
+             (blockFrames:i64 (/ 4096 (* 4 cols)))
+             (id:i8* (random_string 12))
+             (loop
+              (lambda (n:i64)
+                (beginz
+                  (let* ((p (pref-ptr data (* n cols)))
+                         (r (- rows n))
+                         (w (if (< blockFrames r) blockFrames r))
+                         (q:i8* (cast p))
+                         (blockBytes:i64 (* w 4 cols))
+                         (blob:Blob* (Blob q blockBytes))
+                         (var:Variant* (Variant blob))
+                         (desc:i8* (alloc 256)))
+                    (cond
+                      ((= r rows)
+                       ;; send a start message, with the total number of rows and cols
+                       (sprintf desc "{ 'storageType' : 'ByteArray', 'class' : 'matrix', 'dataType' : 'f32', 'rows' : %ld, 'cols' : %ld, 'indexIsFirstCol' : true, 'endian' : 'little' }" (i64toi32 rows) (i64toi32 cols))
+                       (osc_send ip port "/plot/start" 
+                                 (list (Variant (String id)) 
+                                       (Variant (String desc))
+                                       (Variant (String type)) 
+                                       (Variant (i64toi32 pane))))
+                    
+                       ;; send the first block of rows
+                       (sprintf desc "{ 'storageType' : 'ByteArray', 'class' : 'matrix', 'dataType' : 'f32', 'startRow' : 0, 'rows' : %ld, 'cols' : %ld, 'indexIsFirstCol' : true, 'endian' : 'little' }" 
+                                (i64toi32 w) (i64toi32 cols))
+                       (osc_send ip port "/plot/continue" 
+                          (list (Variant (String id))
+                          (Variant (String desc))
+                          var))
+                       (loop (+ n w)))
+                      ((< 0 r)
+                       ;; send the next block of rows
+                       (sprintf desc "{ 'storageType' : 'ByteArray', 'class' : 'matrix', 'dataType' : 'f32', 'startRow' : %ld, 'rows' : %ld, 'cols' : %ld, 'indexIsFirstCol' : true, 'endian' : 'little' }" 
+                                (i64toi32 n) (i64toi32 w) (i64toi32 cols))
+                       (osc_send ip port "/plot/continue" 
+                         (list (Variant (String id))
+                         (Variant (String desc))
+                         var))
+                    (loop (+ n w)))
+                   (else 
+                    ;; send the stop message
+                    (osc_send ip port "/plot/stop" (list (Variant (String id))))))
+                        void)))))
+            (loop 0)
+            void))))
+
+
+
+;; ------ Receiving OSC ------ ;;
 
 (bind-func strtoi64:[i64,String*]*
   (lambda (str)
@@ -295,5 +380,4 @@
 ;;                       (impc:ti:get-native-name osc_receive)))
 
 
-(set! *xtmlib-ybot_osc-loaded* #t)
 (impc:aot:insert-footer "xtmybot_osc")

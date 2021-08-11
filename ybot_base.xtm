@@ -1,15 +1,23 @@
+;; lib-loading config
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_base.xtm" 'quiet))
 (sys:load-preload-check 'ybot_base)
-(define *xtmlib-ybot_base-loaded* #f)
+(define *xtmlib-ybot_base-loaded* #t)
 
-(impc:aot:suppress-aot-do
- (sys:load "libs/core/adt.xtm"))
-(impc:aot:insert-forms
- (sys:load "libs/core/adt.xtm" 'quiet))
+(impc:aot:suppress-aot-do (sys:load "libs/core/adt.xtm"))
+(impc:aot:insert-forms (sys:load "libs/core/adt.xtm" 'quiet))
+
+(impc:aot:insert-header "xtmybot_base")
+(impc:aot:import-ll "xtmybot_base")
  
 
 ;; Convenience utilities
 (bind-macro (@ . args)
   `(pref ,(car args) 0))
+
+;;; left curry ;;;
+;; curry: f(x1,x2,x3...), x2, x3, ... -> g(x1)  
+(bind-macro (curry . args)
+  `(lambda (x) (,(car args) x ,@(cdr args))))
 
 (bind-func non-null:[bool,i8*]*
   (lambda (p)
@@ -60,6 +68,38 @@
               (else
                b)))))
       (loop 0 0))))
+
+
+;; big endian combination of bytes
+(bind-func be_literal:[i64,List{i8}*]*
+  (lambda (bytes)
+    (let ((loop 
+            (lambda
+              (lst:List{i8}* j:i64 x:i64)
+              (cond 
+               ((and (non-empty lst) (< j 8))
+                (loop (cdr lst) (+ j 1) (bor x (<< (i8toui64 (car lst)) (* 8 j)))))
+                (else x)))))
+      (loop (reverse bytes) 0 0))))
+
+
+;; little endian combination of bytes
+(bind-func le_literal:[i64,List{i8}*]*
+  (lambda (bytes)
+    (let ((loop 
+            (lambda
+              (lst:List{i8}* j:i64 x:i64)
+              (cond 
+               ((and (non-empty lst) (< j 8))
+                (loop (cdr lst) (+ j 1) (bor x (<< (i8toui64 (car lst)) (* 8 j)))))
+                (else x)))))
+      (loop (reverse bytes) 0 0))))
+
+
+(bind-func bb:[i64,i8*,i64]*
+  (lambda (bstr:i8* n:i64)
+    (let ((lst:List{i8}* (map_t (lambda (m:i64) (binary "00000000")) (range n))))
+      (be_literal (cons (binary bstr) lst)))))
 
 
 (bind-func print_byte:[void,i64]*
@@ -308,5 +348,4 @@
      ((non-empty str) (substring str 1 (length str)))
      (else null))))
 
-
-(define *xtmlib-ybot_base-loaded* #t)
+(impc:aot:insert-footer "xtmybot_base")

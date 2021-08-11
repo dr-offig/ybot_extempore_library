@@ -1,17 +1,24 @@
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_maths.xtm" 'quiet))
 (sys:load-preload-check 'ybot_maths)
-(define *xtmlib-ybot_maths-loaded* #f)
+(define *xtmlib-ybot_maths-loaded* #t)
 
 (impc:aot:suppress-aot-do
  (sys:load "libs/core/math_ext.xtm")
- (sys:load "libs/contrib/ybot/ybot_filesystem.xtm"))
+ ;(sys:load "libs/contrib/ybot/ybot_filesystem.xtm")
+)
 (impc:aot:insert-forms
  (sys:load "libs/core/math_ext.xtm")
- (sys:load "libs/contrib/ybot/ybot_filesystem.xtm" 'quiet))
+ ;(sys:load "libs/contrib/ybot/ybot_filesystem.xtm" 'quiet)
+)
 
+(impc:aot:insert-header "xtmybot_maths")
+(impc:aot:import-ll "xtmybot_maths")
 
-(bind-func isnumeric:[bool,i8*]*
-  (lambda (str)
-    (rmatch "^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$" str)))
+;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; (bind-func isnumeric:[bool,i8*]*
+;   (lambda (str)
+;     (rmatch "^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$" str)))
 
 (bind-func isnumeric:[bool,i8*]*
   (lambda (str)
@@ -46,38 +53,234 @@
   (lambda (n base)
     (mod (+ n (convert 1)) base)))
 
-(bind-func dist_f:[float,float,float]*
+(bind-func dist:[float,float,float]*
   (lambda (x:float y:float)
     (fabs (- x y))))
 
-(bind-func dist_d:[double,double,double]*
+(bind-func dist:[double,double,double]*
   (lambda (x y)
     (fabs (- x y))))
 
-(bind-func dist_i32:[i32,i32,i32]*
+(bind-func dist:[i32,i32,i32]*
   (lambda (x y)
     (abs (- x y))))
 
-(bind-func dist_i64:[i64,i64,i64]*
+(bind-func dist:[i64,i64,i64]*
   (lambda (x y)
     (i32toi64 (abs (i64toi32 (- x y))))))
 
-(bind-func dist:[float,float,float]*
-  (lambda (x y)
-    (dist_f x y)))
+; (bind-func dist:[float,float,float]*
+;   (lambda (x y)
+;     (dist_f x y)))
 
-(bind-func dist:[double,double,double]*
-  (lambda (x y)
-    (dist_d x y)))
+; (bind-func dist:[double,double,double]*
+;   (lambda (x y)
+;     (dist_d x y)))
 
-(bind-func dist:[i32,i32,i32]*
-  (lambda (x y)
-    (dist_i32 x y)))
+; (bind-func dist:[i32,i32,i32]*
+;   (lambda (x y)
+;     (dist_i32 x y)))
 
-(bind-func dist:[i64,i64,i64]*
-  (lambda (x y)
-    (dist_i64 x y)))
+; (bind-func dist:[i64,i64,i64]*
+;   (lambda (x y)
+;     (dist_i64 x y)))
 
+;;;;;;;;;;;;;;;;; Gaussians ;;;;;;;;;;;;;;;;;;
+(bind-func gaussian:[SAMPLE,SAMPLE,SAMPLE,SAMPLE]*
+  (lambda (x:SAMPLE mu:SAMPLE sigma:SAMPLE)
+    (if (= sigma (convert 0))
+        (if (= x mu) (convert 1) (convert 0))
+        (/ (exp (* (dtof -0.5) (pow (/ (- x mu) sigma) (dtof 2.0)))) (* sigma (sqrt STWOPI))))))
+
+
+;;;;;;;;;;;;;;;; Golden mean ;;;;;;;;;;;;;
+(bind-val PHI double (/ (+ 1.0 (sqrt 5.0)) 2.0))
+(bind-val FHI float (dtof PHI))
+
+;;;;;;;;;;;;;;;;; Extra Vector Helper Functions ;;;;;;;;;;;;;;;;;;
+(bind-func vget:[!b,Vector{!a}*,i64]*
+  (lambda (v n)
+    (pref (tref v 0) n)))
+
+(bind-func vset:[void,Vector{!a}*,i64,!b]*
+  (lambda (v n x)
+    (pset! (tref v 0) n x)
+    void))
+
+(bind-func IndexVector:[Vector{!a}*,i64]*
+  (lambda (n)
+    (let* ((p (alloc n)) (i:i64 0)
+           (P (Vector p n)))
+        (dotimes (i n)
+          (pset! p i (convert i)))
+        P)))
+
+(bind-func length:[i64,Vector{!a}*]* (lambda (v) (tref v 1)))
+(bind-func length:[void,Vector{!a}*,i64]* (lambda (v n) (tset! v 1 n) void))
+(bind-func data:[!a,Vector{!a}*]* (lambda (v) (tref v 0)))
+(bind-func data:[void,Vector{!a}*,!a]* (lambda (v p) (tset! v 0 p) void))
+
+(bind-func to_float:[Vector{float*}*,Vector{double*}*]*
+  (lambda (v)
+    (let* ((n:i64 (length v))
+           (p:float* (alloc n))
+           (o (Vector p n))
+           (i:i64 0))
+      (dotimes (i n)
+        (vset o i (convert (vget v i))))
+      o)))
+
+
+(bind-func Vector_print:[void,Vector{!a}*]*
+  (lambda (v)
+    (let ((i:i64 0))
+      (printout "[")
+      (dotimes (i (tref v 1))
+        (printout " " (vget v i) " "))
+      (println "]")
+      void)))
+
+
+; (bind-func sum:[!b,Vector{!a}*]*
+;   (lambda (v)
+;     (let ((i:i64 0)
+;           (c (convert 0)))
+;       (dotimes (i (length v))
+;         (set! c (+ c (vget v i))))
+;       c)))
+
+(bind-func sum:[!b,Vector{!a}*]*
+  (lambda (v)
+    (vsum (data v) (length v))))
+
+; (bind-func mean:[!b,Vector{!a}*]*
+;   (lambda (v)
+;     (/ (sum v) (convert (length v)))))
+
+
+(bind-func mean:[!b,Vector{!a}*]*
+  (lambda (v)
+    (vmean (data v) (length v))))
+
+
+(bind-func demean:[Vector{!a}*,Vector{!a}*]*
+  (lambda (v)
+    (let* ((n:i64 (length v))
+           (p (alloc n))
+           (o (Vector p n))
+           (w (mean v))
+           (i:i64 0))
+      (dotimes (i n)
+        (vset v i (- (vget v i) w)))
+      o)))
+
+
+(bind-func l1:[!b,Vector{!a}*]*
+  (lambda (v)
+    (let* ((n:i64 (length v))
+           (i:i64 0)
+           (c:double 0.0))
+      (dotimes (i n)
+        (set! c (+ c (fabs (convert (vget v i) double)))))
+      (convert c))))
+
+
+(bind-func l2:[!b,Vector{!a}*]*
+  (lambda (v)
+    (let* ((n:i64 (length v))
+           (i:i64 0)
+           (c:double 0.0)
+           (d:double 0.0))
+      (dotimes (i n)
+        (set! d (convert (vget v i)))
+        (set! c (+ c (* d d))))
+      (convert (sqrt c)))))
+
+; (bind-func sd:[!b,Vector{!a}*]*
+;   (lambda (v)
+;     (let ((a (mean v)) (i:i64 0) (c (convert 0)) (d (convert 0)))
+;       (dotimes (i (length v))
+;         (set! d (- (vget v i) a))
+;         (set! c (+ c (* d d))))
+;       (sqrt (/ c (convert (length v)))))))
+
+(bind-func sd:[!b,Vector{!a}*]*
+  (lambda (v)
+    (/ (l2 (demean v)) (convert (sqrt (i64tod (length v)))))))
+
+(bind-func scale:[Vector{!a}*,Vector{!a}*,!b]*
+  (lambda (v c)
+    (let* ((p (alloc (length v)))
+           (o (Vector p (length v)))
+           (i:i64 0))
+      (dotimes (i (length v))
+        (vset o i (* (convert c) (vget v i))))
+      o)))
+
+(bind-func ones:[Vector{!a}*,i64]*
+  (lambda (n)
+    (let* ((p (alloc n))
+           (o (Vector p n))
+           (i:i64 0))
+      (dotimes (i n)
+        (vset o i (convert 1)))
+      o      
+    )))
+
+(bind-func zeros:[Vector{!a}*,i64]*
+  (lambda (n)
+    (let* ((p (alloc n))
+           (o (Vector p n))
+           (i:i64 0))
+      (dotimes (i n)
+        (vset o i (convert 0)))
+      o
+    )))
+
+
+(bind-func noise:[Vector{!a}*,i64,!b,!b]*
+  (lambda (n mu sigma)
+    (let* ((p (alloc n))
+           (o (Vector p n))
+           (i:i64 0) (x:double 0.0))
+      (dotimes (i n)
+        (set! x (* 2.0 (- (random) 0.5)))
+        (vset o i (+ mu (* sigma (convert x)))))
+      o)))
+
+
+(bind-func elem_div:[Vector{!a}*,Vector{!a}*,Vector{!a}*]*
+  (lambda (v w)
+    (let* ((a:i64 (length v))
+           (b:i64 (length w))
+           (c:i64 (if (< a b) a b))
+           (i:i64 0)
+           (p (alloc c))
+           (o (Vector p c)))
+      (dotimes (i c)
+        (if (= (vget w i) (convert 0))
+            (vset o i (/ (vget v i) (vget w i)))
+            (vset o i (convert 0))))
+      o)))
+
+(bind-func elem_apply:[Vector{!a}*,Vector{!a}*,[!b,!b]*]*
+  (lambda (v f)
+    (let* ((n:i64 (length v)) (i:i64 0)
+           (p (alloc n))
+           (o (Vector p n)))
+      (dotimes (i n)
+        (vset o i (f (vget v i))))
+      o)))
+
+
+(bind-func make_with_proc:[Vector{!a}*,i64,[!b,i64]*]*
+  (lambda (n proc)
+    (let* ((p (alloc n)) (i:i64 0)
+           (o (Vector p n)))
+        (dotimes (i n)
+          (vset o i (proc i)))
+        o)))
+    
 
 ;;;;;;;;;;;;;;;;; Extra Matrix Helper Functions ;;;;;;;;;;;;;;;;;;
 
@@ -100,6 +303,150 @@
       void)))
 
 
+;; explicit typed versions to trigger specialization compilation
+; (bind-func mgetf:[float,Matrix{float*}*,i64,i64]*
+;   (lambda (m i j)
+;     (mget m i j)))
+
+; (bind-func mgetd:[double,Matrix{double*}*,i64,i64]*
+;   (lambda (m i j)
+;     (mget m i j)))
+
+; (bind-func msetf:[void,Matrix{float*}*,i64,i64,float]*
+;   (lambda (m i j x)
+;     (mset m i j x)))
+
+; (bind-func msetd:[void,Matrix{double*}*,i64,i64,double]*
+;   (lambda (m i j x)
+;     (mset m i j x)))
+
+
+
+(bind-func data:[!a,Matrix{!a}*]* (lambda (m) (tref m 0)))
+(bind-func rows:[i64,Matrix{!a}*]* (lambda (m) (tref m 1)))
+(bind-func cols:[i64,Matrix{!a}*]* (lambda (m) (tref m 2)))
+(bind-func row_major:[i1,Matrix{!a}*]* (lambda (m) (tref m 3)))
+
+(bind-func data:[void,Matrix{!a}*,!a]* (lambda (m p) (tset! m 0 p) void))
+(bind-func rows:[void,Matrix{!a}*,i64]* (lambda (m r) (tset! m 1 r) void))
+(bind-func cols:[void,Matrix{!a}*,i64]* (lambda (m c) (tset! m 2 c) void))
+(bind-func row_major:[void,Matrix{!a}*,i1]* (lambda (m b) (tset! m 3 b) void))
+
+(bind-func matrix_with_extra_column:[Matrix{!a}*,Matrix{!a}*,Vector{!a}*,i64]*
+  (lambda (m v k)
+    (let* ((r:i64 (rows m)) (c:i64 (cols m))
+           (p (alloc (* r (+ c 1))))
+           (o (Matrix p r (+ c 1) (row_major m)))
+           (i:i64 0) (j:i64 0))
+      (cond
+       ((= r (tref v 1))
+        (dotimes (i r)
+         (dotimes (j (+ c 1))
+           (cond 
+            ((< j k) (mset o i j (mget m i j)))
+            ((> j k) (mset o i (+ j 1) (mget m i j)))
+            (else (mset o i j (vget v i))))))
+        void)
+       (else 
+        (printf "ERROR: attempting to insert column vector of length %lld into matrix with %lld rows\n"
+                (tref v 1) r)
+             void))
+          o)))
+
+
+(bind-func add_index_column:[Matrix{!a}*,Matrix{!a}*]*
+  (lambda (m)
+    (matrix_with_extra_column m (IndexVector (rows m)) 0)))
+
+
+(bind-func add_index_column:[Matrix{!a}*,Vector{!a}*]*
+  (lambda (v)
+    (let* ((n:i64 (length v))
+           (p (alloc (* n 2)))
+           (o (Matrix p n 2 1))
+           (i:i64 0))
+        (dotimes (i n)
+          (mset o i 0 (convert i))
+          (mset o i 1 (vget v i)))
+        o)))
+
+
+(bind-func column:[Vector{!a}*,Matrix{!a}*,i64]*
+  (lambda (m k)
+    (let* ((r:i64 (rows m))
+           (p (alloc r))
+           (v (Vector p r))
+           (i:i64 0))
+        (dotimes (i r)
+          (vset v i (mget m i k)))
+        v)))
+
+
+(bind-func column:[void,Matrix{!a}*,i64,Vector{!a}*]*
+  (lambda (m k v)
+    (let* ((r:i64 (rows m))
+           (n:i64 (length v))
+           (i:i64 0))
+        (cond
+        ((= r n)
+         (dotimes (i r)
+          (mset m i k (vget v i))))
+        (else 
+          (printf "Error setting column of matrix with %lld rows to vector of length %lld" r n)
+          void))
+        void)))
+
+(bind-func row:[Vector{!a}*,Matrix{!a}*,i64]*
+  (lambda (m k)
+    (let* ((c:i64 (cols m))
+           (p (alloc c))
+           (v (Vector p c))
+           (j:i64 0))
+        (dotimes (j c)
+          (vset v j (mget m k j)))
+        v)))
+
+
+(bind-func row:[void,Matrix{!a}*,i64,Vector{!a}*]*
+  (lambda (m k v)
+    (let* ((c:i64 (cols m))
+           (n:i64 (length v))
+           (j:i64 0))
+        (cond
+         ((= c n)
+          (dotimes (j c)
+            (mset m k j (vget v j))))
+         (else 
+          (printf "Error setting column of matrix with %lld rows to vector of length %lld" r n)
+          void))
+        void)))
+
+(bind-func rowMajor:[Matrix{!a}*,Matrix{!a}*]*
+  (lambda (m)
+    (if (row_major m)
+        m
+        (let* ((p (alloc (* (rows m) (cols m))))
+               (o (Matrix p (rows m) (cols m) 1))
+               (i:i64 0) (j:i64 0))
+          (dotimes (i (rows m))
+            (dotimes (j (cols m))
+              (mset o i j (mget m i j))))
+          o))))
+
+
+(bind-func to_float:[Matrix{float*}*,Matrix{double*}*]*
+  (lambda (m)
+    (let* ((r:i64 (rows m))
+           (c:i64 (cols m))
+           (p:float* (alloc (* r c)))
+           (o (Matrix p r c (row_major m)))
+           (i:i64 0) (j:i64 0))
+      (dotimes (i r)
+        (dotimes (j c)
+          (mset o i j (convert (mget m i j)))))
+      o)))
+
+  
 (bind-func Matrix_print:[void,Matrix{!a}*]*
   (lambda (m)
     (let ((rows:i64 (tref m 1)) (i:i64 0)
@@ -112,91 +459,332 @@
         void)))
 
 
-(bind-func Matrix_read_from_csv:[Matrix{double*}*,i8*]*
-  (lambda (path)
-    (let* ((handle (yfs_open path))
-           (rows:i64 0)
-           (cols:i64 0)
-           (scan_done:bool* (zalloc))
-           (burn_done:bool* (zalloc))
-           (read_done:bool* (zalloc))
-           (scanloop:[i64,i64,bool*]*
-            (lambda (n done)
-              (if (= (% n 1000) 0) (println "Scanning file: now reading line " n))
-              (let ((line (yfs_read_line handle done)))
-                (if (and (not (@ done)) (< 0 (strlen line)))
-                  (scanloop (+ n 1) done)
-                  (begin
-                    (yfs_file_rewind handle)
-                    n)))))
-         (burnin:[i64,bool*]*
-           (let ((mark:i64 0))
-             (lambda (done)
-               (println "Burning in csv file " path ". Up to character number " mark)
-               (yfs_file_seek handle mark)
-               (let ((line (yfs_read_line handle done)))
-                 (if (not (@ done))
-                     (let* ((entries (regex_split  "," (String line)))
-                            (c:i64 (length entries)))
-                       (if (< 0 c)
-                           (let* ((buf:i8* (cstring (car entries))))
-                             (cond
-                              ((isnumeric buf) (yfs_file_seek handle mark) c) ;; return the number of columns found
-                              (else (set! mark (yfs_current_playhead handle)) (burnin done))))
-                           0))
-                     0)))))
-          (readloop:[i64,Matrix{double*}*,i64,bool*]*
-           (lambda (mat n done)
-             (if (= (% n 1000) 0) (println "Reading line " n))
-             (let ((bunkam:bool #f)
-                   (line (yfs_read_line handle done)))
-               (if (not (@ done))
-                   (let* ((entries (regex_split  "," (String line)))
-                          (c:i64 (length entries)))
-                     (if (<> c cols)
-                         (begin (set! bunkam #t) -1)
-                         (let ((cc:i64 0))
-                           (dotimes (cc c)
-                             (let* ((next_token (nth entries cc))
-                                   (tmp (cstring next_token))
-                                   (value (atof tmp)))
-                               (mset mat n cc value)))
-                             (readloop mat (+ n 1) done))))
-                   (if bunkam -1 1))))))
-      (pset! scan_done 0 #f)
-      (pset! burn_done 0 #f)
-      (pset! read_done 0 #f)
-      (set! rows (scanloop 0 scan_done))
-      (set! cols (burnin burn_done))
-      (let* ((data:double* (zalloc (* rows cols)))
-             (output:Matrix{double*}* (Matrix data rows cols #f)))
-        (readloop output 0 read_done)
-        (yfs_close handle)
-        output))))
-
-;; (bind-func test-powf:[float,float,float]*
-;;   (lambda (x:float y:float)
-;;     (pow x y)))
-
-;; (test-powf 3. 2.)
-
-;;;;;;;;;;;;;;;;; Gaussians ;;;;;;;;;;;;;;;;;;
-(bind-func gaussian:[SAMPLE,SAMPLE,SAMPLE,SAMPLE]*
-  (lambda (x:SAMPLE mu:SAMPLE sigma:SAMPLE)
-    (if (= sigma (convert 0))
-        (if (= x mu) (convert 1) (convert 0))
-        (/ (exp (* (dtof -0.5) (pow (/ (- x mu) sigma) (dtof 2.0)))) (* sigma (sqrt STWOPI))))))
+(bind-func scale:[Matrix{!a}*,Matrix{!a}*,!b]*
+  (lambda (m c)
+    (let* ((a:i64 (rows m))
+           (b:i64 (cols m))
+           (i:i64 0) (j:i64 0)
+           (p (alloc (* a b)))
+           (o (Matrix p a b (row_major m))))
+      (dotimes (i a)
+        (dotimes (j b)
+          (mset o i j (* (convert c) (mget m i j)))))
+      o)))
 
 
+(bind-func scale_columns:[Matrix{!a}*,Matrix{!a}*,Vector{!a}*]*
+  (lambda (m v)
+    (let 
+      ((a:i64 (rows m))
+       (b:i64 (cols m))
+       (i:i64 0) (j:i64 0)
+       (n:i64 (length v)))
+      (cond 
+       ((= n b)
+        (let*
+          ((p (alloc (* a b)))
+           (o (Matrix p a b (row_major m))))
+          (dotimes (i a)
+            (dotimes (j b)
+              (mset o i j (* (mget m i j) (vget v j)))))
+          o))
+       (else (println "Error in scale_columns, matrix cols must match vector length")
+             (convert 0))))))
+
+           
+
+(bind-func Matrix_print:[void,Matrix{!a}*,i64,i64]*
+  (lambda (m a b)
+    (let* ((rows:i64 (tref m 1)) (i:i64 0)
+          (cols:i64 (tref m 2)) (j:i64 0)
+          (u:i64 (if (< a rows) a rows))
+          (v:i64 (if (< b rows) b rows))
+          (n:i64 (- v u)))
+        (dotimes (i n)
+          (printout "| ")
+          (dotimes (j cols)
+            (printout (mget m (+ i a) j) " "))
+          (printout "|\n"))
+        void)))
 
 
-;;;;;;;;;;;;;;;; Golden mean ;;;;;;;;;;;;;
-(bind-val PHI double (/ (+ 1.0 (sqrt 5.0)) 2.0))
-(bind-val FHI float (dtof PHI))
-(set! *xtmlib-ybot_maths-loaded* #t)
+(bind-func sum:[Vector{!a}*,Matrix{!a}*,i1]*
+  (lambda (m byCol)
+    (let ((a:i64 (rows m)) (b:i64 (cols m))
+          (i:i64 0) (j:i64 0) (c:double 0.0))
+      (if byCol
+        (let* ((p (alloc b))
+               (o (Vector p b)))
+          (dotimes (j b)
+            (set! c 0.0)
+            (dotimes (i a)
+              (set! c (+ c (convert (mget m i j) double))))
+            (vset o j (convert c)))
+            o)
+        (let* ((p (alloc a))
+               (o (Vector p a)))
+          (dotimes (i a)
+            (set! c 0.0)
+            (dotimes (j b)
+              (set! c (+ c (convert (mget m i j) double)))
+            (vset o i (convert c))))
+            o)))))
+        
+
+(bind-func mean:[Vector{!a}*,Matrix{!a}*,i1]*
+  (lambda (m byCol)
+    (scale (sum m byCol) (/ 1.0 (convert (if byCol (cols m) (rows m)))))))
 
 
+(bind-func demean:[Matrix{!a}*,Matrix{!a}*,i1]*
+  (lambda (m byCol)
+    (let* ((mu (mean m byCol))
+           (x (convert 0))
+           (a:i64 (rows m))
+           (b:i64 (cols m))
+           (i:i64 0) (j:i64 0)
+           (p (alloc (* a b)))
+           (o (Matrix p a b (row_major m))))
+        (if byCol
+          (dotimes (j b)
+            (set! x (vget mu j))
+            (dotimes (i a)
+              (mset o i j (- (mget m i j) x))))
+          (dotimes (i a)
+            (set! x (vget mu i))
+            (dotimes (j b)
+              (mset o i j (- (mget m i j) x)))))
+      o)))
 
+
+(bind-func l1:[Vector{!a}*,Matrix{!a}*,i1]*
+  (lambda (m byCol)
+    (let* ((a:i64 (rows m))
+           (b:i64 (cols m))
+           (i:i64 0) (j:i64 0)
+           (c:double 0.0) (d:double 0.0))
+      (if byCol
+          (let* ((p (alloc b))
+                 (o (Vector p b)))
+            (dotimes (j b)
+              (set! c 0.0)
+              (dotimes (i a)
+                (set! d (convert (mget m i j)))
+                (set! c (+ c (fabs d))))
+              (vset o j (convert c)))
+            o)
+          (let* ((p (alloc a))
+                 (o (Vector p a)))
+            (dotimes (i a)
+              (set! c 0.0)
+              (dotimes (j b)
+                (set! d (convert (mget m i j)))
+                (set! c (+ c (fabs d))))
+              (vset o i (convert c)))
+            o)))))
+          
+
+(bind-func l2:[Vector{!a}*,Matrix{!a}*,i1]*
+  (lambda (m byCol)
+    (let* ((a:i64 (rows m))
+           (b:i64 (cols m))
+           (i:i64 0) (j:i64 0)
+           (c:double 0.0) (d:double 0.0))
+      (if byCol
+          (let* ((p (alloc b))
+                 (o (Vector p b)))
+            (dotimes (j b)
+              (set! c 0.0)
+              (dotimes (i a)
+                (set! d (convert (mget m i j)))
+                (set! c (+ c (* d d))))
+              (vset o j (convert (sqrt c))))
+            o)
+          (let* ((p (alloc a))
+                 (o (Vector p a)))
+            (dotimes (i a)
+              (set! c 0.0)
+              (dotimes (j b)
+                (set! d (convert (mget m i j)))
+                (set! c (+ c (* d d))))
+              (vset o i (convert (sqrt c))))
+            o)))))
+
+
+(bind-func sd:[Vector{!a}*,Matrix{!a}*,i1]*
+  (lambda (m byCol)
+    (/ (l2 (demean m byCol) byCol) (convert (sqrt (i64tod (if byCol (rows m) (cols m))))))))
+
+; (bind-func sd:[Vector{!a}*,Matrix{!a}*,i1]*
+;   (lambda (m byCol)
+;     (let* ((v (mean m byCol))
+;            (i:i64 0) (j:i64 0)
+;            (a:i64 (rows m)) (b:i64 (cols m))
+;            (c:double 0.0) (d:double 0.0))
+;       (cond 
+;         (byCol
+;           (let* ((p (alloc b))
+;                  (o (Vector p b)))
+;             (dotimes (j b)
+;               (set! c 0.0)
+;               (dotimes (i a)
+;                 (set! d (convert (- (mget m i j) (vget v j)) double))       
+;                 (set! c (+ c (* d d))))
+;               (vset o j (convert (sqrt (/ c (i64tod a))))))
+;             o))
+;         (else  
+;           (let* ((p (alloc a))
+;                  (o (Vector p a)))
+;             (dotimes (i a)
+;               (set! c 0.0)
+;               (dotimes (j b)
+;                 (set! d (convert (- (mget m i j) (vget v i)) double))
+;                 (set! c (+ c (* d d))))
+;               (vset o j (convert (sqrt (/ c (i64tod b))))))
+;             o))))))
+          
+
+(bind-func eye:[Matrix{!a}*,i64]*
+  (lambda (n)
+    (let* ((p (alloc (* n n)))
+           (o (Matrix p n n 1))
+           (i:i64 0) (j:i64 0))
+      (dotimes (i n)
+         (dotimes (j n)
+            (mset o i j (if (= i j) (convert 1) (convert 0)))))
+      o)))
+
+(bind-func diag:[Matrix{!a}*,Vector{!a}*]*
+  (lambda (v)
+    (let* ((n:i64 (length v))
+           (p (alloc (* n n)))
+           (o (Matrix p n n 1))
+           (i:i64 0) (j:i64 0))
+      (dotimes (i n)
+         (dotimes (j n)
+            (mset o i j (if (= i j) (vget v i) (convert 0))))))))
+
+(bind-func ones:[Matrix{!a}*,i64,i64]*
+  (lambda (a b)
+    (let* ((p (alloc (* a b)))
+           (o (Matrix p a b 1))
+           (i:i64 0) (j:i64 0))
+      (dotimes (i a)
+         (dotimes (j b)
+            (mset o i j (convert 1))))
+      o)))
+
+(bind-func zeros:[Matrix{!a}*,i64,i64]*
+  (lambda (a b)
+    (let* ((p (alloc (* a b)))
+           (o (Matrix p a b 1))
+           (i:i64 0) (j:i64 0))
+      (dotimes (i a)
+         (dotimes (j b)
+            (mset o i j (convert 0))))
+      o)))
+
+
+(bind-func clone:[Matrix{!a}*,Matrix{!a}*]*
+  (lambda (m)
+    (let* ((r:i64 (rows m))
+           (c:i64 (cols m))
+           (i:i64 0) (j:i64 0)
+           (p (alloc (* r c)))
+           (o (Matrix p r c (row_major m))))
+      (dotimes (i r)
+        (dotimes (j c)
+          (mset o i j (mget m i j))))
+      o)))
+      
+
+(bind-func join_columns:[Matrix{!a}*,List{Vector{!a}*}*]*
+  (lambda (lst)
+    (let* ((b:i64 (length lst))
+           (a:i64 (length (car lst)))
+           (i:i64 0) (j:i64 0)
+           (p (alloc (* a b)))
+           (o (Matrix p a b 0)))
+      (dotimes (i a)
+        (dotimes (j b)
+          (mset o i j (vget (nth lst j) i))))
+      o)))
+           
+
+(bind-func biquad_hpf:[Matrix{!a}*,Matrix{!a}*,SAMPLE,SAMPLE]*
+  (lambda (m freq res)
+    (let* ((nRows:i64 (rows m))
+           (nCols:i64 (cols m))
+           (i:i64 0) (j:i64 0)
+           (filter:[SAMPLE,i64,SAMPLE,SAMPLE,SAMPLE]* (hpfbq_mc_c nCols))
+           (o (clone m)))
+      (dotimes (i nRows)
+        (dotimes (j nCols)
+          (mset o i j (filter j (mget m i j) freq res))))
+      o)))
+
+
+; (bind-func Matrix_read_from_csv:[Matrix{double*}*,i8*]*
+;   (lambda (path)
+;     (let* ((handle (yfs_open path))
+;            (rows:i64 0)
+;            (cols:i64 0)
+;            (scan_done:bool* (zalloc))
+;            (burn_done:bool* (zalloc))
+;            (read_done:bool* (zalloc))
+;            (scanloop:[i64,i64,bool*]*
+;             (lambda (n done)
+;               (if (= (% n 1000) 0) (println "Scanning file: now reading line " n))
+;               (let ((line (yfs_read_line handle done)))
+;                 (if (and (not (@ done)) (< 0 (strlen line)))
+;                   (scanloop (+ n 1) done)
+;                   (begin
+;                     (yfs_file_rewind handle)
+;                     n)))))
+;          (burnin:[i64,bool*]*
+;            (let ((mark:i64 0))
+;              (lambda (done)
+;                (println "Burning in csv file " path ". Up to character number " mark)
+;                (yfs_file_seek handle mark)
+;                (let ((line (yfs_read_line handle done)))
+;                  (if (not (@ done))
+;                      (let* ((entries (regex_split  "," (String line)))
+;                             (c:i64 (length entries)))
+;                        (if (< 0 c)
+;                            (let* ((buf:i8* (cstring (car entries))))
+;                              (cond
+;                               ((isnumeric buf) (yfs_file_seek handle mark) c) ;; return the number of columns found
+;                               (else (set! mark (yfs_current_playhead handle)) (burnin done))))
+;                            0))
+;                      0)))))
+;           (readloop:[i64,Matrix{double*}*,i64,bool*]*
+;            (lambda (mat n done)
+;              (if (= (% n 1000) 0) (println "Reading line " n))
+;              (let ((bunkam:bool #f)
+;                    (line (yfs_read_line handle done)))
+;                (if (not (@ done))
+;                    (let* ((entries (regex_split  "," (String line)))
+;                           (c:i64 (length entries)))
+;                      (if (<> c cols)
+;                          (begin (set! bunkam #t) -1)
+;                          (let ((cc:i64 0))
+;                            (dotimes (cc c)
+;                              (let* ((next_token (nth entries cc))
+;                                    (tmp (cstring next_token))
+;                                    (value (atof tmp)))
+;                                (mset mat n cc value)))
+;                              (readloop mat (+ n 1) done))))
+;                    (if bunkam -1 1))))))
+;       (pset! scan_done 0 #f)
+;       (pset! burn_done 0 #f)
+;       (pset! read_done 0 #f)
+;       (set! rows (scanloop 0 scan_done))
+;       (set! cols (burnin burn_done))
+;       (let* ((data:double* (zalloc (* rows cols)))
+;              (output:Matrix{double*}* (Matrix data rows cols #f)))
+;         (readloop output 0 read_done)
+;         (yfs_close handle)
+;         output))))
 
 
 ;;;;;;;;;;;;;;; Finite Fields ;;;;;;;;;;;;;;;;
@@ -219,3 +807,4 @@
     (tset! z 0 (mod (- (tref z 0) 1) (tref z 1)))))
 
   
+(impc:aot:insert-footer "xtmybot_maths")

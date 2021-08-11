@@ -1,30 +1,16 @@
-;;(sys:load "libs/aot-cache/ybot_filesystem.xtm" 'quiet)
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_filesystem.xtm" 'quiet))
 (sys:load-preload-check 'ybot_filesystem)
-(define *xtmlib-ybot_filesystem-loaded* #f)
+(define *xtmlib-ybot_filesystem-loaded* #t)
 
 (impc:aot:suppress-aot-do
- (sys:load "libs/contrib/ybot/ybot_base.xtm")
- (sys:load "libs/external/apr.xtm"))
+ (sys:load "libs/external/apr.xtm")
+ (sys:load "libs/contrib/ybot/ybot_base.xtm"))
 (impc:aot:insert-forms
- (sys:load "libs/contrib/ybot/ybot_base.xtm" 'quiet)
- (sys:load "libs/external/apr.xtm"))
+ (sys:load "libs/external/apr.xtm" 'quiet)
+ (sys:load "libs/contrib/ybot/ybot_base.xtm" 'quiet))
 
-;;(impc:aot:insert-header "xtmybot_filesystem")
-
-
-;; Include guard
-;; (if (and (defined? '*xtmlib-ybot-filesystem-loaded*) *xtmlib-ybot-filesystem-loaded*)
-;;     (sys:load-escape "ybot_filesystem library already loaded"))
-;; (define *xtmlib-ybot-filesystem-loaded* #f)
-
-;; ;; Internal dependancies
-;; (if (not (defined? '*ybot-lib-dir*))
-;;     (sys:load-escape "Set the *ybot-lib-dir* variable before loading this library"))
-;; (sys:load (string-append *ybot-lib-dir* "/ybot_base.xtm"))         
-
-;; ;; External dependancies
-;; (sys:load "libs/external/apr.xtm")
-
+(impc:aot:insert-header "xtmybot_filesystem")
+(impc:aot:import-ll "xtmybot_filesystem")
 
 (bind-val YFS_MAX_LINE_LENGTH i64 8096)
 
@@ -123,15 +109,19 @@
             (cstring (String ""))
             (cstring (car (last (cdr (regex_split r (String name)))))))))))
 
-
-(bind-val yfs_global_pool apr_pool_t* (apr_pool_create))
+(bind-val yfs_global_pool apr_pool_t* (convert 0))
+;(bind-val yfs_global_pool apr_pool_t* (apr_pool_create))
 (bind-func yfs_clear_global_pool:[void]*
   (lambda ()
     (apr_pool_destroy yfs_global_pool)
     (set! yfs_global_pool (apr_pool_create))
     void))
        
-
+(bind-func yfs_init
+  (lambda ()
+    (apr_init)
+    (set! yfs_global_pool (apr_pool_create))
+    ))
 
 ;; (bind-func yfs_file_length:[i64,i8*]*
 ;;   (let ((pool:apr_pool_t* (apr_pool_create)))
@@ -161,7 +151,6 @@
     (let ((info:apr_finfo_t* (salloc)))
       (apr_stat info path APR_FINFO_TYPE yfs_global_pool)
       (= APR_REG (tref info 3)))))
-
 
 
 ;; (bind-func yfs_open:[apr_file_t*,i8*]*
@@ -496,10 +485,5 @@
          (else
           (apr_pool_destroy pool) #f)))))
 
-
-
                    
-(define *xtmlib-ybot_filesystem-loaded* #t)
-;;(impc:aot:insert-footer "xtmybot_filesystem")
-
-
+(impc:aot:insert-footer "xtmybot_filesystem")

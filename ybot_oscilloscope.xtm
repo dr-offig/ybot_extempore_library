@@ -1,5 +1,7 @@
+;; lib-loading config
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_oscilloscope.xtm" 'quiet))
 (sys:load-preload-check 'ybot_oscilloscope)
-(define *xtmlib-ybot_oscilloscope-loaded* #f)
+(define *xtmlib-ybot_oscilloscope-loaded* #t)
 
 (impc:aot:suppress-aot-do
  (sys:load "libs/external/gl/gl-objects.xtm")
@@ -11,6 +13,9 @@
  (sys:load "libs/external/glfw3.xtm")
  (sys:load "libs/core/scheduler.xtm")
  (sys:load "libs/contrib/ybot/ybot_adt.xtm" 'quiet))
+
+(impc:aot:insert-header "xtmybot_oscilloscope")
+(impc:aot:import-ll "xtmybot_oscilloscope")
 
 ;(run_main_event_loop)
 
@@ -31,15 +36,15 @@
       vbo)))
 
 
-(bind-val width i32 1024)
-(bind-val height i32 768)
+(bind-val w i32 1024)
+(bind-val h i32 768)
  
 (bind-val window GLFWwindow*
   ;; some of the shaders in the graphics pipeline use older glsl
   ;; versions, so we need a "compatibility" graphics context
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_interaction_window width height)))
+    (glfw_init_and_create_interaction_window w h)))
 
 
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
@@ -100,7 +105,7 @@
       (YbotScopeLog channel in)
       void)
      (else void))
-    in))
+    (* (random) 0.05) ))
 
 
 (dsp:set! dsp)
@@ -158,8 +163,8 @@
     (set! post_process_sp (ShaderProgram_create vsource fsource))))
 
 (create_post_process_shader
- (sys:slurp-file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/framebuffer-post-process.vert")
- (sys:slurp-file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/framebuffer-post-process.frag"))
+ (sys:slurp-file "/Users/ybot/Documents/code/ybot/ybot_xtm_lib/framebuffer-post-process.vert")
+ (sys:slurp-file "/Users/ybot/Documents/code/ybot/ybot_xtm_lib/framebuffer-post-process.frag"))
 
 
 (bind-val screen_vert_data |30,float|)
@@ -170,8 +175,8 @@
 
 ($ (set! screen_prog
          (ShaderProgram_create
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/background_with_transparency.vert")
-          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_extempore_library/background_with_transparency.frag"))))
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_xtm_lib/background_with_transparency.vert")
+          (sys_slurp_file "/Users/ybot/Documents/code/ybot/ybot_xtm_lib/background_with_transparency.frag"))))
 
 
 ;; init data
@@ -392,5 +397,5 @@
 ;;    (println "draw_loop callback stopped")
 ;;    void))
 
-($ (run_oscilloscope #t))
-(define *xtmlib-ybot_oscilloscope-loaded* #t)
+;;($ (run_oscilloscope #t))
+

@@ -8,18 +8,18 @@
  (sys:load "libs/external/glfw3.xtm" 'quiet)
  (sys:load "libs/core/math.xtm" 'quiet))
 
-;(bind-val width float 800.)
-;(bind-val height float 600.)
-
-;; (bind-val window GLFWwindow*
-;;   (begin
-;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-;;     (glfw_init_and_create_interaction_window (convert width) (convert height))))
+(bind-val width float 800.)
+(bind-val height float 600.)
 
 (bind-val window GLFWwindow*
   (begin
     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
-    (glfw_init_and_create_fullscreen_interaction_window)))
+    (glfw_init_and_create_interaction_window (convert width) (convert height))))
+
+;; (bind-val window GLFWwindow*
+;;   (begin
+;;     (glfwSetErrorCallback (convert (get_native_fptr glfw_error_callback)))
+;;     (glfw_init_and_create_fullscreen_interaction_window)))
 
 ;; Note that we must only load and intitialise nanovg after creating a window
 (sys:load "libs/external/nanovg.xtm")
@@ -28,8 +28,8 @@
 (bind-val vg NVGcontext* (nvg_create_context))
 (bind-val pixel_ratio float (glfw_get_pixel_ratio window))
 
-(bind-val width float (glfw_get_window_width window))
-(bind-val height float (glfw_get_window_height window))
+;(bind-val width float (glfw_get_window_width window))
+;(bind-val height float (glfw_get_window_height window))
 
 (bind-val cx float (/ width 2.0:float))
 (bind-val cy float (/ height 2.0:float))

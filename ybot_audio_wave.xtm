@@ -1,0 +1,349 @@
+;; lib-loading config
+(if *impc:compiler:with-cache* (sys:load "libs/aot-cache/ybot_audio_wave.xtm" 'quiet))
+(sys:load-preload-check 'ybot_audio_wave)
+(define *xtmlib-ybot_audio_wave-loaded* #t)
+
+(impc:aot:suppress-aot-do (sys:load "libs/contrib/ybot/ybot_osc.xtm")
+                          (sys:load "libs/core/audio_dsp.xtm")
+                          (sys:load "libs/external/sndfile.xtm"))
+(impc:aot:insert-forms (sys:load "libs/contrib/ybot/ybot_osc.xtm" 'quiet)
+                       (sys:load "libs/core/audio_dsp.xtm" 'quiet)
+                       (sys:load "libs/external/sndfile.xtm" 'quiet))
+
+(impc:aot:insert-header "xtmybot_audio_wave")
+(impc:aot:import-ll "xtmybot_audio_wave")
+
+;; float32 linearPCM interleaved Audio format
+;;                  data, frames, channels, samplerate
+(bind-type AudioWave <SAMPLE*,i64,i64,double>)
+
+(bind-func data:[SAMPLE*,AudioWave*]* (lambda (wave) (tref wave 0)))
+(bind-func data:[void,AudioWave*,SAMPLE*]* (lambda (wave p) (tset! wave 0 p) void))
+(bind-func frames:[i64,AudioWave*]* (lambda (wave) (tref wave 1)))
+(bind-func frames:[void,AudioWave*,i64]* (lambda (wave f) (tset! wave 1 f) void))
+(bind-func channels:[i64,AudioWave*]* (lambda (wave) (tref wave 2)))
+(bind-func channels:[void,AudioWave*,i64]* (lambda (wave c) (tset! wave 2 c) void))
+(bind-func samplerate:[double,AudioWave*]* (lambda (wave) (tref wave 3)))
+(bind-func samplerate:[void,AudioWave*,double]* (lambda (wave sr) (tset! wave 3 sr) void))
+
+;;;;;;;;; accessing ;;;;;;;;;;
+(bind-func channelData:[SAMPLE*,AudioWave*,i64]*
+  (lambda (wave chan)
+    (let* ((p:SAMPLE* (alloc (frames wave)))
+           (q:SAMPLE* (data wave))
+           (frame:i64 0))
+          (dotimes (frame (frames wave))
+           (pset! p frame (pref q (+ (* (channels wave) frame) chan))))
+          p)))
+
+(bind-func extractChannel:[void,SAMPLE*,AudioWave*,i64]*
+  (lambda (p wave chan)
+    (let* ((q:SAMPLE* (data wave))
+           (frame:i64 0))
+          (dotimes (frame (frames wave))
+            (pset! p frame (pref q (+ (* (channels wave) frame) chan)))))))
+                     
+(bind-func extractFrame:[void,SAMPLE*,AudioWave*,i64]*
+  (lambda (p wave frame)
+    (let* ((q:SAMPLE* (data wave))
+           (chan:i64 0))
+          (dotimes (chan (channels wave))
+            (pset! p chan (pref q (+ (* (channels wave) frame) chan)))))))
+  
+(bind-func get:[SAMPLE,AudioWave*,i64,i64]*
+  (lambda (wave frame channel)
+    (pref (data wave) (+ (* (channels wave) frame) channel))))
+
+(bind-func set:[void,AudioWave*,i64,i64,SAMPLE]*
+  (lambda (wave frame channel value)
+    (pset! (data wave) (+ (* (channels wave) frame) channel) value)
+    void))
+
+
+;;;;;;;; analysis ;;;;;;;;;
+(bind-func rms:[SAMPLE*,AudioWave*]*
+  (lambda (wave:AudioWave*)
+    (let* ((CHANNELS:i64 (channels wave))
+           (FRAMES:i64 (frames wave))
+           (output:SAMPLE* (alloc CHANNELS))
+           (c:i64 0)
+           (n:i64 0)
+           (w:SAMPLE 0.0)
+           (v:SAMPLE 0.0))
+          (dotimes (c CHANNELS)
+            (set! v (dtof 0.0))
+            (dotimes (n FRAMES)
+              (set! w (get wave n c))
+              (set! v (+ v (* w w))))
+            (pset! output c (sqrt (/ v (i64tof FRAMES)))))
+          output)))
+
+
+;;;;;;;;;; manipulate ;;;;;;;;;;
+
+;; Creates a view of an Audiowave as contiguous time segment
+;; extracted from another wave. Inclusive of start, exclusive of end
+(bind-func segmentView:[AudioWave*,AudioWave*,i64,i64]*
+  (lambda (wave a b)
+    (let ((p:SAMPLE* (data wave))
+          (c:i64 (channels wave))
+          (d:i64 (if (or (< b 0) (< (frames wave) b)) (frames wave) b))
+          (n:i64 (- d a))
+          (sr:double (samplerate wave)))
+      (AudioWave (pref-ptr p (* a c)) n c sr))))
+
+;; Split into channels
+(bind-func splitChannels:[List{AudioWave*}*,AudioWave*]*
+  (lambda (wave:AudioWave*)
+    (let ((nFrames:i64 (frames wave))
+          (sr:double (samplerate wave))
+          (mono:i64 1)
+          (ind:List{i64}* (range (channels wave)))
+          (proc:[AudioWave*,i64]*
+            (lambda (c:i64)
+              (AudioWave (channelData wave c) nFrames mono sr))))
+    (map_t proc ind))))
+
+;; Merge mono waves into multichannel, extending with silence
+;; to the length of the longest
+(bind-func mergeIntoMultichannel:[AudioWave*,List{AudioWave*}*]*
+  (lambda (waves)
+    (let* ((l:i64 (foldl (lambda (a:i64 b:i64) (if (< a b) b a)) 0 (map_t frames:[i64,AudioWave*]* waves)))
+           (p:SAMPLE* (alloc (* l (length waves))))
+           (o:AudioWave* (AudioWave p l (length waves) (samplerate (car waves))))
+           (frame:i64 0) (chan:i64 0))
+        (dotimes (chan (length waves))
+          (dotimes (frame l)
+            (set o frame chan (get (nth waves chan) frame 0))))
+        o)))
+  
+
+;; Concatenate audio files. Pad with silent channels any sections that have
+;; less channels then the section with the most channels. Assumes all sections
+;; have the same samplerate
+(bind-func join:[AudioWave*,List{AudioWave*}*]*
+  (lambda (waves)
+    (let* ((l:i64 (foldl (lambda (a:i64 b:i64) (+ a b)) 0 (map_t frames:[i64,AudioWave*]* waves)))
+           (c:i64 (foldl (lambda (a:i64 b:i64) (if (< a b) b a)) 0 (map_t channels:[i64,AudioWave*]* waves)))
+           (p:SAMPLE* (alloc (* l c)))
+           (o:AudioWave* (AudioWave p l c (samplerate (car waves))))
+           (frame:i64 0) (chan:i64 0) (marker:i64 0) (i:i64 0))
+        (dotimes (i (length waves))
+          (let ((wave (nth waves i)))
+            (dotimes (chan c)
+              (cond
+                ((< chan (channels wave))
+                 (dotimes (frame (frames wave))
+                    (set o (+ marker frame) chan (get wave frame chan))))
+                (else
+                  (dotimes (frame (frames wave))
+                    (set o (+ marker frame) chan (get wave frame chan))))))
+            (set! marker (+ marker (frames wave)))))
+        o)))
+
+
+(bind-func clone:[AudioWave*,AudioWave*]*
+  (lambda (wave)
+    (let* ((n:i64 (frames wave))
+           (c:i64 (channels wave))
+           (i:i64 0) (j:i64 0)
+           (p:SAMPLE* (alloc (* n c)))
+           (o:AudioWave* (AudioWave p n c (samplerate wave))))
+        (dotimes (i n)
+          (dotimes (j c)
+            (set o i j (get wave i j))))
+        o)))
+
+
+;;;;;;;;;  generators ;;;;;;;;;;
+
+(bind-func silence:DSP
+  (lambda (in time chan dat)
+    (convert 0.0)))
+
+(bind-func silent_wave:[AudioWave*,i64,i64,double]*
+  (lambda (frms chans sr)
+    (let* ((p:SAMPLE* (alloc (* frms chans)))
+           (o:AudioWave* (AudioWave p frms chans sr))
+           (n:i64 0) (c:i64 0))
+      (dotimes (n frms)
+        (dotimes (c chans)
+          (set o n c 0:f32)))
+          o)))
+
+(bind-func sine_wave:[AudioWave*,i64,i64,double,SAMPLE,SAMPLE,SAMPLE]*
+  (lambda (frms chans sr amp freq phase)
+    (let* ((p:SAMPLE* (alloc (* frms chans)))
+           (o:AudioWave* (AudioWave p frms chans sr))
+           (n:i64 0) (c:i64 0))
+      (dotimes (n frms)
+        (dotimes (c chans)
+          (set o n c (* amp (sin (* STWOPI (+ phase (/ (* freq (convert n SAMPLE)) (convert sr SAMPLE)))))))))
+          o)))
+
+(bind-func noise_wave:[AudioWave*,i64,i64,double,SAMPLE]*
+  (lambda (frms chans sr amp)
+    (let* ((p:SAMPLE* (alloc (* frms chans)))
+           (o:AudioWave* (AudioWave p frms chans sr))
+           (n:i64 0) (c:i64 0))
+      (dotimes (n frms)
+        (dotimes (c chans)
+          (set o n c (* amp (random)))))
+          o)))
+
+
+;;;;;;;;;; effects ;;;;;;;;;
+
+(bind-func amplify:[AudioWave*,AudioWave*,double]*
+  (lambda (wave dB)
+    (let* ((n:i64 (frames wave))
+           (c:i64 (channels wave))
+           (p:SAMPLE* (alloc (* n c)))
+           (o:AudioWave* (AudioWave p n c (samplerate wave)))
+           (i:i64 0) (j:i64 0)
+           (g:SAMPLE (convert (pow 10. (/ dB 20.)) SAMPLE)))
+        (dotimes (i n)
+          (dotimes (j c)
+             (set o i j (* g (get wave i j)))))
+        o)))
+          
+
+(bind-func biquad_hpf:[AudioWave*,AudioWave*,SAMPLE,SAMPLE]*
+  (lambda (wave freq res)
+    (let* ((nFrames:i64 (frames wave))
+           (nChans:i64 (channels wave))
+           (frame:i64 0) (chan:i64 0)
+           (filter:[SAMPLE,i64,SAMPLE,SAMPLE,SAMPLE]* (hpfbq_mc_c nChans))
+           (o:AudioWave* (clone wave)))
+      (dotimes (frame nFrames)
+        (dotimes (chan nChans)
+          (set o frame chan (filter chan (get wave frame chan) freq res))))
+      o)))
+           
+          
+
+;;;;;;; no sample rate changes in channel strip ;;;;;
+; (bind-func process:[AudioWave*,AudioWave*,List{DSP}*]*
+;   (lambda (wave effects)
+;     (let*
+;       ((n:i64 (frames wave))
+;        (c:i64 (channels wave))
+;        (frame:i64 0) (chan:i64 0)
+;        (a:AudioWave* (clone wave))
+;        (b:AudioWave* (clone wave))
+;        (q:i1 0)
+;        (processor:[void,DSP]*
+;           (lambda (effect)
+;             (let ((inBuf:AudioWave* (if q a b))
+;                   (outBuf:AudioWave* (if q b a)))
+;               (set! q (not q))
+;               (dotimes (frame n)
+;                 (dotimes (chan c)
+;                   (set outBuf frame chan (effect (get inBuf frame chan) frame chan (data inBuf)))))
+;               void)))
+;        (loop:[void,List{DSP}*]*
+;           (lambda (lst)
+;             (cond
+;               ((non-null lst)
+;                (processor (car lst))
+;                (loop (cdr lst)))
+;               (else void)))))
+;       (loop effects)
+;       (if q a b))))
+          
+       
+
+;;;;;;;;;; playback ;;;;;;;;;;
+(bind-func player:[DSP,AudioWave*,i64,i64,i1]*
+  (lambda (wave startFrame endFrame loopPlayback)
+    (let ((startTime:i64 (now))
+          (len:i64 (- endFrame startFrame)))
+      (lambda (in time chan dat)
+        (if loopPlayback
+          (get wave (+ startFrame (modulo (- time startTime) len)) chan)
+          (if (< (- time startTime) len)
+              (get wave (+ startFrame (- time startTime)) chan)
+              0.0))))))
+         
+              
+
+;;;;;;;; printing and plotting ;;;;;;;;
+    
+(bind-func print_wave:[void,AudioWave*]*
+  (lambda (wave)
+    (let ((CHANNELS (channels wave))
+          (FRAMES (frames wave))
+          (r:SAMPLE* (rms wave))
+          (c:i64 0))
+      (printf "Frames: %lld  Channels: %lld\n" FRAMES CHANNELS)
+      (printf "RMS: [ ")
+      (dotimes (c CHANNELS)
+        (printf "%0.3f " (ftod (pref r c))))
+      (printf "]\n")
+      void)))
+
+(bind-func plot_wave:[void,AudioWave*,i64,i64,i8*,i64]*
+  (lambda (wave startFrame endFrame ip port)
+    (let* ((FRAMES:i64 (frames wave))
+           (CHANNELS:i64 (channels wave))
+           (a:i64 (if (<= 0 startFrame) startFrame 0))
+           (b:i64 (if (<= 0 endFrame) endFrame FRAMES))
+           (n:i64 (- b a))
+           (Q:i64 (* n (+ CHANNELS 1)))
+           (q:SAMPLE* (zalloc Q))
+           (mark:i64 0)
+           (plotter (osc_plotter_c ip port))
+           (i:i64 0) (offset:i64 0) (frame:i64 0) (chan:i64 0))
+      (dotimes (i n)
+        (set! frame (+ a i))
+        (set! offset (* i (+ CHANNELS 1)))
+        (pset! q offset (i64tof frame))
+        (dotimes (chan CHANNELS)
+          (pset! q (+ offset chan 1) (get wave frame chan))))
+      (plotter q n (+ CHANNELS 1) "envelope" 0)
+      void)))
+
+
+;; Load up some audio data
+(bind-func load_audio:[AudioWave*,i8*]*
+  (lambda (filepath)
+    (let* ((nchan (convert (sf_channels_from_file filepath)))
+           (nframes (sf_frames_from_file filepath))
+           (nsamp (* nchan nframes))
+           (audio_data:SAMPLE* (alloc nsamp))
+           (info:SF_INFO* (salloc))
+           (audiofile (sf_open filepath SFM_READ info)))
+      (cond
+        ((non-null audiofile)
+         (let ((channels (convert (tref info 2) i64))
+               (nsamples (* nframes channels))
+               (nread (sf_read audiofile audio_data nsamples))
+               (o:AudioWave* (AudioWave audio_data 
+                                        (convert (tref info 0) i64) 
+                                        channels
+                                        (convert (tref info 1) double))))
+          (sf_close audiofile)
+          o))
+        (else (println "Error opening audio file " filepath)
+              (convert 0))))))
+          
+
+;; write audio to file
+(bind-func write_audio:[i64,AudioWave*,i8*]*
+  (lambda (wave filepath)
+    (let* ((info:SF_INFO* (salloc))
+          (f:i64 (frames wave))
+          (c:i64 (channels wave))
+          (nSamp:i64 (* f c))
+          (sr:double (samplerate wave))
+          (audio_data:SAMPLE* (data wave)))
+      (tset! info 1 (convert sr i32))
+      (tset! info 0 f)
+      (tset! info 2 (convert c i32))
+      (tset! info 3 (bor SF_FORMAT_WAV SF_FORMAT_FLOAT))
+      (let* ((audiofile:SNDFILE* (sf_open filepath SFM_WRITE info))
+             (nwritten (sf_write audiofile audio_data nSamp)))
+          (sf_close audiofile)
+          nwritten))))
+
+(impc:aot:insert-footer "xtmybot_audio_wave")
